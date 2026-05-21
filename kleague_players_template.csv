@@ -1,0 +1,13 @@
+club_name,player_name,nationality,birth_date,position_raw,position,ovr,pac,sho,def,phy,checked
+울산 HD FC,조현우,대한민국,1991-09-25,GK,GK,75,79,72,51,73,Y
+울산 HD FC,선수이름,대한민국,YYYY-MM-DD,CB,DF,OVR,PAC,SHO,DEF,PHY,N
+울산 HD FC,선수이름,대한민국,YYYY-MM-DD,LB,DF,OVR,PAC,SHO,DEF,PHY,N
+울산 HD FC,선수이름,대한민국,YYYY-MM-DD,RB,DF,OVR,PAC,SHO,DEF,PHY,N
+울산 HD FC,선수이름,대한민국,YYYY-MM-DD,CB,DF,OVR,PAC,SHO,DEF,PHY,N
+울산 HD FC,선수이름,대한민국,YYYY-MM-DD,CDM,MF,OVR,PAC,SHO,DEF,PHY,N
+울산 HD FC,선수이름,대한민국,YYYY-MM-DD,CM,MF,OVR,PAC,SHO,DEF,PHY,N
+울산 HD FC,선수이름,대한민국,YYYY-MM-DD,CAM,MF,OVR,PAC,SHO,DEF,PHY,N
+울산 HD FC,선수이름,대한민국,YYYY-MM-DD,LM,MF,OVR,PAC,SHO,DEF,PHY,N
+울산 HD FC,선수이름,대한민국,YYYY-MM-DD,ST,FW,OVR,PAC,SHO,DEF,PHY,N
+울산 HD FC,선수이름,대한민국,YYYY-MM-DD,ST,FW,OVR,PAC,SHO,DEF,PHY,N
+전북 현대 모터스,선수이름,대한민국,YYYY-MM-DD,GK,GK,OVR,PAC,SHO,DEF,PHY,N
