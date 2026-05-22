@@ -1,0 +1,14 @@
+erDiagram
+    CLUBS ||--o{ MANAGERS : has
+    CLUBS ||--o{ PLAYERS : owns
+    PLAYERS ||--|| PLAYER_STATS : has
+    PLAYERS ||--o{ CONTRACTS : signs
+    CLUBS ||--o{ CONTRACTS : manages
+    CLUBS ||--o{ APP_USERS : selected_by
+    PLAYERS ||--o{ TRANSFER_MARKET : listed_as
+    CLUBS ||--o{ TRANSFER_MARKET : sells
+    PLAYERS ||--o{ TRANSFER_HISTORY : moved_in
+    CLUBS ||--o{ TRANSFER_HISTORY : from_club
+    CLUBS ||--o{ TRANSFER_HISTORY : to_club
+    CLUBS ||--o{ SQUAD_BATTLES : home
+    CLUBS ||--o{ SQUAD_BATTLES : away
