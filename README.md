@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # K League Transfer Simulator DB
 
 이 폴더는 팀원에게 바로 넘길 수 있는 최종 DB 구축 패키지입니다.
@@ -117,3 +118,6 @@ streamlit run kleague_app.py
 ## 발표 핵심 문장
 
 > 저희 프로젝트는 K League 1 선수 데이터를 기반으로 구단 예산, 계약, 선수 소속, 이적시장 매물, 이적 기록을 MySQL에서 관리하는 DB 중심 이적시장 시뮬레이터입니다. 선수 영입과 방출은 저장 프로시저와 트랜잭션으로 처리되어 예산 변경, 계약 변경, 소속 변경, 이력 저장이 하나의 작업으로 보장됩니다.
+=======
+# Database-project
+>>>>>>> e5e7d876d352eafd3f73e5e13e57df00c50e79ac
