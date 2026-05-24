@@ -17,11 +17,10 @@ USE kleague_db;
 -- =====================================================
 CREATE TABLE CLUB (
     club_id          INT            NOT NULL AUTO_INCREMENT,
-    name             VARCHAR(50)    NOT NULL,
-    city             VARCHAR(30)    NOT NULL,
+    name             VARCHAR(100)   NOT NULL,
+    city             VARCHAR(80)    NOT NULL,
     founded_year     YEAR           NOT NULL,
-    stadium_name     VARCHAR(50)    NOT NULL,
-    stadium_location VARCHAR(100)   NOT NULL,
+    stadium_name     VARCHAR(120)   NOT NULL,
     stadium_capacity INT            NOT NULL,
     initial_budget   DECIMAL(15,2)  NOT NULL,
     current_budget   DECIMAL(15,2)  NOT NULL,
@@ -102,7 +101,7 @@ CREATE TABLE CONTRACT (
     player_id   INT            NOT NULL,
     club_id     INT            NOT NULL,
     start_date  DATE           NOT NULL,
-    end_date    DATE           NOT NULL,
+    end_date    DATE           NULL,     -- NULL = 계약 종료일 미정
     salary      DECIMAL(12,2)  NOT NULL,
     status      VARCHAR(10)    NOT NULL DEFAULT 'active',
 
@@ -110,7 +109,7 @@ CREATE TABLE CONTRACT (
     FOREIGN KEY (player_id) REFERENCES PLAYER(player_id),
     FOREIGN KEY (club_id)   REFERENCES CLUB(club_id),
 
-    CONSTRAINT chk_contract_date   CHECK (end_date > start_date),
+    CONSTRAINT chk_contract_date   CHECK (end_date IS NULL OR end_date > start_date),
     CONSTRAINT chk_salary          CHECK (salary >= 0),
     CONSTRAINT chk_contract_status CHECK (status IN ('active', 'expired'))
 );

@@ -1,299 +1,391 @@
 """
 csv_to_sql.py
 ─────────────────────────────────────────────────────────────────
-CSV → SQL INSERT 변환 + 사전 검증 스크립트
-
-사용법:
-    python csv_to_sql.py kleague_players_verified.csv
+CSV 파일들을 읽어 두 개의 DML SQL 파일을 생성합니다.
 
 출력:
-    kleague_players_verified_converted.sql
-        └─ PLAYER / PLAYER_STATS / CONTRACT INSERT문 + 검증 쿼리
+  kleague_dml_base.sql   <- CLUB / MANAGER / APP_USER
+  kleague_dml_sample.sql <- PLAYER / PLAYER_STATS / CONTRACT / TRANSFER_MARKET
 
-주의:
-    CLUB / MANAGER / APP_USER / TRANSFER_MARKET 은
-    별도 DML 파일(kleague_dml_base.sql)에서 관리합니다.
+선수 구성:
+  - data/cleaned_players.csv  : 기존 11명/구단 (전체 12구단)
+  - DBPBL cleaned_players.csv : 9개 매핑 구단에 5명 추가 -> 16명/구단
+  - FC Anyang(7), Bucheon(9), Gimcheon(11) : 11명 유지 (DBPBL 미매핑)
+
+DBPBL 구단 -> 현재 club_id 매핑:
+  Seoul->1  Ulsan->2  Jeonbuk Motors->3  Gangwon->4
+  Pohang Steelers->5  Incheon United->6
+  Jeju United->8  Daejeon Citizen->10  Gwangju->12
+
+컬럼 매핑 (DBPBL -> PLAYER_STATS):
+  shooting  -> attack
+  defending -> defense
+  physic    -> stamina
+  pace      -> speed
 ─────────────────────────────────────────────────────────────────
 """
 
 import csv
-import sys
-from collections import defaultdict
-from datetime import datetime
+import os
 
-# ─────────────────────────────────────────────
-# 상수 정의
-# ─────────────────────────────────────────────
-CLUB_MAP = {
-    '울산 HD FC':       1,
-    '전북 현대 모터스': 2,
-    'FC 서울':          3,
-    '포항 스틸러스':    4,
-    '강원 FC':          5,
-    '제주 SK':          6,
-    '인천 유나이티드':  7,
-    '대전 하나 시티즌': 8,
-    '김천 상무':        9,
-    '광주 FC':         10,
-    'FC 안양':         11,
-    '부천 FC 1995':    12,
+DATA_DIR     = "data"
+DBPBL_DIR    = r"C:\Users\l22s2\proj\DBPBL\soccer\cleaned"
+BASE_FILE    = "kleague_dml_base.sql"
+SAMPLE_FILE  = "kleague_dml_sample.sql"
+
+# DBPBL club_name -> 현재 DB club_id
+DBPBL_CLUB_MAP = {
+    "Seoul":           1,
+    "Ulsan":           2,
+    "Jeonbuk Motors":  3,
+    "Gangwon":         4,
+    "Pohang Steelers": 5,
+    "Incheon United":  6,
+    "Jeju United":     8,
+    "Daejeon Citizen": 10,
+    "Gwangju":         12,
 }
 
-# EA 포지션 → DB 포지션
-POS_MAP = {
-    'GK':  'GK',
-    'CB':  'DF', 'LB': 'DF', 'RB': 'DF', 'LWB': 'DF', 'RWB': 'DF',
-    'CDM': 'MF', 'CM': 'MF', 'CAM': 'MF', 'LM': 'MF', 'RM': 'MF',
-    'ST':  'FW', 'CF': 'FW', 'LW': 'FW', 'RW': 'FW',
-}
-
-# 팀별 필수 포지션 구성
-REQUIRED = {'GK': 1, 'DF': 4, 'MF': 4, 'FW': 2}
-TOTAL_PLAYERS = 132
-TOTAL_CLUBS   = 12
-
-
-# ─────────────────────────────────────────────
-# 헬퍼
-# ─────────────────────────────────────────────
-def esc(s: str) -> str:
-    """SQL 인젝션 방지: 작은따옴표 escape"""
-    return s.replace("'", "''")
-
-def to_db_pos(pos_raw: str) -> str:
-    return POS_MAP.get(pos_raw.strip().upper(), '')
+MANAGERS = [
+    # (club_id, name, nationality, birth_date, tactics, rating)
+    (1,  '안익수',  '대한민국', '1968-05-18', '4-4-2',   80),  # FC Seoul
+    (2,  '홍명보',  '대한민국', '1969-02-01', '4-3-3',   88),  # Ulsan HD FC
+    (3,  '김상식',  '대한민국', '1974-07-04', '4-2-3-1', 84),  # Jeonbuk
+    (4,  '윤종환',  '대한민국', '1970-03-15', '4-3-3',   78),  # Gangwon
+    (5,  '김기동',  '대한민국', '1972-01-05', '3-4-3',   79),  # Pohang
+    (6,  '조성환',  '대한민국', '1970-09-11', '4-1-4-1', 77),  # Incheon
+    (7,  '류병훈',  '대한민국', '1975-05-20', '4-3-3',   71),  # FC Anyang
+    (8,  '남기일',  '대한민국', '1971-06-07', '4-4-2',   76),  # Jeju SK
+    (9,  '조덕제',  '대한민국', '1968-09-30', '4-4-2',   70),  # Bucheon FC 1995
+    (10, '황선홍',  '대한민국', '1968-07-14', '4-2-3-1', 83),  # Daejeon
+    (11, '이병근',  '대한민국', '1973-11-20', '4-3-3',   74),  # Gimcheon
+    (12, '이정효',  '대한민국', '1979-12-03', '4-2-3-1', 72),  # Gwangju
+]
 
 
-# ─────────────────────────────────────────────
-# 메인 변환 함수
-# ─────────────────────────────────────────────
-def convert(csv_file: str) -> None:
-    rows        = []
-    skip_errors = []   # checked != Y  또는 파싱 오류
-    parse_errors = []  # 필드 오류
+def esc(v):
+    if v is None:
+        return "NULL"
+    return "'" + str(v).replace("'", "''") + "'"
 
-    # ── 1. CSV 읽기 + 기본 파싱 ──────────────────
-    with open(csv_file, encoding='utf-8-sig') as f:
-        reader = csv.DictReader(f)
-        for line_no, row in enumerate(reader, start=2):
-            name    = row.get('player_name', '').strip()
-            club    = row.get('club_name', '').strip()
-            nat     = row.get('nationality', '').strip()
-            bd      = row.get('birth_date', '').strip()
-            pos_raw = row.get('position_raw', '').strip()
-            pos     = row.get('position', '').strip() or to_db_pos(pos_raw)
-            checked = row.get('checked', '').strip().upper()
+def null_or_date(v):
+    v = v.strip() if v else ""
+    return "NULL" if not v else esc(v)
 
-            # 1-① checked == Y 아닌 행 스킵
-            if checked != 'Y':
-                skip_errors.append(
-                    f"  행 {line_no:>3} │ {club:<20} │ {name} "
-                    f"→ checked='{row.get('checked','').strip()}' (미검수, 스킵)"
-                )
-                continue
+def read_csv(path):
+    # utf-8-sig: BOM 있는 파일도 처리
+    with open(path, encoding="utf-8-sig") as f:
+        return list(csv.DictReader(f))
 
-            # 1-② 구단명 검증
-            if club not in CLUB_MAP:
-                parse_errors.append(f"  행 {line_no:>3} │ 알 수 없는 구단: '{club}'")
-                continue
 
-            # 1-③ 포지션 검증
-            db_pos = pos if pos in ('GK', 'DF', 'MF', 'FW') else to_db_pos(pos_raw)
-            if db_pos not in ('GK', 'DF', 'MF', 'FW'):
-                parse_errors.append(
-                    f"  행 {line_no:>3} │ {club} │ {name} "
-                    f"→ 포지션 매핑 불가: '{pos_raw}'"
-                )
-                continue
+# ─────────────────────────────────────────────────────────────────
+# DML BASE: CLUB / MANAGER / APP_USER
+# ─────────────────────────────────────────────────────────────────
+def gen_base():
+    clubs = read_csv(os.path.join(DATA_DIR, "cleaned_clubs.csv"))
+    users = read_csv(os.path.join(DATA_DIR, "app_users.csv"))
 
-            # 1-④ 생년월일 형식 검증
-            try:
-                datetime.strptime(bd, '%Y-%m-%d')
-            except ValueError:
-                parse_errors.append(
-                    f"  행 {line_no:>3} │ {club} │ {name} "
-                    f"→ 날짜 형식 오류: '{bd}' (YYYY-MM-DD 필요)"
-                )
-                continue
-
-            # 1-⑤ 능력치 정수 파싱
-            try:
-                pac = int(row['pac'])
-                sho = int(row['sho'])
-                def_ = int(row['def'])
-                phy = int(row['phy'])
-            except (KeyError, ValueError) as e:
-                parse_errors.append(
-                    f"  행 {line_no:>3} │ {club} │ {name} "
-                    f"→ 능력치 파싱 오류: {e}"
-                )
-                continue
-
-            rows.append({
-                'club': club, 'club_id': CLUB_MAP[club],
-                'name': name, 'nat': nat, 'bd': bd,
-                'pos_raw': pos_raw, 'pos': db_pos,
-                'pac': pac, 'sho': sho, 'def': def_, 'phy': phy,
-            })
-
-    # ── 2. 사전 검증 ─────────────────────────────
-    validation_errors = []
-
-    # 2-① 전체 선수 수 132명
-    if len(rows) != TOTAL_PLAYERS:
-        validation_errors.append(
-            f"  전체 선수 수: {len(rows)}명 (필요: {TOTAL_PLAYERS}명)"
-        )
-
-    # 2-② 팀 수 12개
-    clubs_present = set(r['club'] for r in rows)
-    if len(clubs_present) != TOTAL_CLUBS:
-        missing = set(CLUB_MAP.keys()) - clubs_present
-        extra   = clubs_present - set(CLUB_MAP.keys())
-        if missing:
-            validation_errors.append(f"  누락된 구단: {', '.join(sorted(missing))}")
-        if extra:
-            validation_errors.append(f"  알 수 없는 구단: {', '.join(sorted(extra))}")
-
-    # 2-③ 팀별 선수 수 11명 + 포지션 구성 GK1/DF4/MF4/FW2
-    club_players  = defaultdict(list)
-    club_pos_cnt  = defaultdict(lambda: defaultdict(int))
-    for r in rows:
-        club_players[r['club']].append(r)
-        club_pos_cnt[r['club']][r['pos']] += 1
-
-    for club in sorted(CLUB_MAP.keys()):
-        cnt = len(club_players[club])
-        if cnt != 11:
-            validation_errors.append(
-                f"  {club}: 선수 수 {cnt}명 (필요: 11명)"
-            )
-        for pos, need in REQUIRED.items():
-            have = club_pos_cnt[club].get(pos, 0)
-            if have != need:
-                validation_errors.append(
-                    f"  {club}: {pos} {have}명 (필요: {need}명)"
-                )
-
-    # 2-④ 이름 + 생년월일 기준 중복 선수
-    seen = defaultdict(list)
-    for r in rows:
-        key = (r['name'], r['bd'])
-        seen[key].append(r['club'])
-    for (name, bd), clubs in seen.items():
-        if len(clubs) > 1:
-            validation_errors.append(
-                f"  중복 선수: {name} ({bd}) → {', '.join(clubs)}"
-            )
-
-    # ── 3. 결과 출력 ─────────────────────────────
-    print("=" * 60)
-    print("  K리그 베스트11 CSV → SQL 변환기")
-    print("=" * 60)
-
-    if skip_errors:
-        print(f"\n[미검수 스킵] {len(skip_errors)}행")
-        for m in skip_errors:
-            print(m)
-
-    if parse_errors:
-        print(f"\n[파싱 오류] {len(parse_errors)}건 → 변환 중단")
-        for m in parse_errors:
-            print(m)
-        sys.exit(1)
-
-    if validation_errors:
-        print(f"\n[검증 실패] {len(validation_errors)}건 → 변환 중단")
-        for m in validation_errors:
-            print(m)
-        print("\nCSV를 수정한 뒤 다시 실행하세요.")
-        sys.exit(1)
-
-    print(f"\n[검증 통과] {len(rows)}명, {len(clubs_present)}개 구단 ✅")
-
-    # ── 4. SQL 생성 ───────────────────────────────
-    player_vals   = []
-    stats_vals    = []
-    contract_vals = []
-
-    for pid, r in enumerate(rows, start=1):
-        cid  = r['club_id']
-        name = esc(r['name'])
-        nat  = esc(r['nat'])
-        bd   = r['bd']
-        pos  = r['pos']
-
-        player_vals.append(
-            f"({cid}, '{name}', '{nat}', '{bd}', '{pos}', NULL, NULL)"
-        )
-        stats_vals.append(
-            f"({pid}, {r['sho']}, {r['def']}, {r['phy']}, {r['pac']})"
-            f"  -- {r['name']} ({r['club']}, {r['pos_raw']}→{pos})"
-        )
-        contract_vals.append(
-            f"({pid}, {cid}, '2024-01-01', '2027-12-31', 200000000, 'active')"
-        )
-
-    lines = [
+    lines = []
+    lines += [
         "-- =====================================================",
-        "-- K리그 이적시장 DB 시스템",
-        "-- DML - PLAYER / PLAYER_STATS / CONTRACT",
-        "-- ※ CLUB / MANAGER / APP_USER / TRANSFER_MARKET 은",
-        "--   kleague_dml_base.sql 에서 별도 관리",
+        "-- K리그 이적시장 기반 스토브리그 체험 DB 시스템",
+        "-- DML BASE -- CLUB / MANAGER / APP_USER",
+        "-- (csv_to_sql.py 자동 생성)",
         "-- =====================================================",
-        "",
-        "USE kleague_db;",
-        "",
-        "-- PLAYER",
-        "INSERT INTO PLAYER (club_id, name, nationality, birth_date, position, height, weight) VALUES",
-        ",\n".join(player_vals) + ";",
-        "",
-        "-- PLAYER_STATS  (speed=PAC, attack=SHO, defense=DEF, stamina=PHY)",
-        "INSERT INTO PLAYER_STATS (player_id, attack, defense, stamina, speed) VALUES",
-        ",\n".join(stats_vals) + ";",
-        "",
-        "-- CONTRACT",
-        "INSERT INTO CONTRACT (player_id, club_id, start_date, end_date, salary, status) VALUES",
-        ",\n".join(contract_vals) + ";",
-        "",
-        "-- =====================================================",
-        "-- DB 검증 쿼리 (실행해서 모두 0건이면 정상)",
-        "-- =====================================================",
-        "",
-        "-- ① 전체 선수 수 (132명이어야 함)",
-        "SELECT COUNT(*) AS total_players FROM PLAYER;",
-        "",
-        "-- ② 팀별 11명이 아닌 구단 (0건이어야 함)",
-        "SELECT c.name, COUNT(*) AS player_count",
-        "FROM PLAYER p JOIN CLUB c ON p.club_id = c.club_id",
-        "GROUP BY c.name HAVING COUNT(*) <> 11;",
-        "",
-        "-- ③ 팀별 포지션 구성 확인",
-        "SELECT c.name, p.position, COUNT(*) AS cnt",
-        "FROM PLAYER p JOIN CLUB c ON p.club_id = c.club_id",
-        "GROUP BY c.name, p.position",
-        "ORDER BY c.name, FIELD(p.position,'GK','DF','MF','FW');",
-        "",
-        "-- ④ 중복 선수 확인 (0건이어야 함)",
-        "SELECT name, birth_date, COUNT(*) AS cnt",
-        "FROM PLAYER GROUP BY name, birth_date HAVING COUNT(*) > 1;",
+        "", "USE kleague_db;", "",
     ]
 
-    out_file = csv_file.replace('.csv', '_converted.sql')
-    with open(out_file, 'w', encoding='utf-8') as f:
-        f.write('\n'.join(lines))
+    # CLUB
+    lines += [
+        "-- =====================================================",
+        "-- 1. CLUB  (출처: data/cleaned_clubs.csv)",
+        "-- =====================================================",
+        "INSERT INTO CLUB",
+        "    (club_id, name, city, founded_year,",
+        "     stadium_name, stadium_capacity,",
+        "     initial_budget, current_budget)",
+        "VALUES",
+    ]
+    rows = []
+    for c in clubs:
+        rows.append(
+            f"({c['club_id']}, {esc(c['club_name'])}, {esc(c['city'])}, "
+            f"{c['founded_year']}, {esc(c['stadium_name'])}, "
+            f"{c['stadium_capacity']}, "
+            f"{c['initial_budget_eur']}, {c['current_budget_eur']})"
+        )
+    lines.append(",\n".join(rows) + ";")
+    lines.append("")
 
-    print(f"\n[완료] SQL 파일 생성: {out_file}")
-    print("\n실행 순서:")
-    print("  1. SOURCE kleague_ddl.sql")
-    print("  2. SOURCE kleague_dml_base.sql        ← CLUB/MANAGER/APP_USER/TRANSFER_MARKET")
-    print(f"  3. SOURCE {out_file}   ← PLAYER/PLAYER_STATS/CONTRACT")
-    print("  4. SOURCE kleague_procedures.sql")
+    # MANAGER
+    lines += [
+        "-- =====================================================",
+        "-- 2. MANAGER",
+        "-- =====================================================",
+        "INSERT INTO MANAGER (club_id, name, nationality, birth_date, tactics, rating) VALUES",
+    ]
+    mgr_rows = [
+        f"({m[0]}, {esc(m[1])}, {esc(m[2])}, {esc(m[3])}, {esc(m[4])}, {m[5]})"
+        for m in MANAGERS
+    ]
+    lines.append(",\n".join(mgr_rows) + ";")
+    lines.append("")
+
+    # APP_USER
+    lines += [
+        "-- =====================================================",
+        "-- 3. APP_USER  (출처: data/app_users.csv)",
+        "-- =====================================================",
+        "INSERT INTO APP_USER (user_id, username, club_id) VALUES",
+    ]
+    u_rows = [
+        f"({u['user_id']}, {esc(u['username'])}, {u['club_id']})"
+        for u in users
+    ]
+    lines.append(",\n".join(u_rows) + ";")
+    lines.append("")
+
+    with open(BASE_FILE, "w", encoding="utf-8") as f:
+        f.write("\n".join(lines))
+    print(f"[OK] {BASE_FILE} ({len(clubs)} clubs, {len(users)} users)")
 
 
-# ─────────────────────────────────────────────
-if __name__ == '__main__':
-    if len(sys.argv) < 2:
-        print("사용법: python csv_to_sql.py 파일명.csv")
-        sys.exit(1)
-    convert(sys.argv[1])
+# ─────────────────────────────────────────────────────────────────
+# DML SAMPLE: PLAYER / PLAYER_STATS / CONTRACT / TRANSFER_MARKET
+# ─────────────────────────────────────────────────────────────────
+def gen_sample():
+    # ── 기존 data/ 파일 로드 ────────────────────────────────────
+    cur_players  = read_csv(os.path.join(DATA_DIR, "cleaned_players.csv"))
+    cur_stats    = {r["player_id"]: r
+                    for r in read_csv(os.path.join(DATA_DIR, "player_stats.csv"))}
+    cur_contracts= {r["player_id"]: r
+                    for r in read_csv(os.path.join(DATA_DIR, "contracts.csv"))}
+    cur_market   = read_csv(os.path.join(DATA_DIR, "transfer_market.csv"))
+
+    # ── DBPBL 파일 로드 ─────────────────────────────────────────
+    dbpbl_all = read_csv(os.path.join(DBPBL_DIR, "cleaned_players.csv"))
+
+    # 구단별로 그룹화 (매핑 구단만)
+    from collections import defaultdict
+    dbpbl_by_club = defaultdict(list)
+    for r in dbpbl_all:
+        if r["club_name"] in DBPBL_CLUB_MAP:
+            dbpbl_by_club[r["club_name"]].append(r)
+
+    # 기존 player_id 집합 (중복 방지)
+    existing_ids = {r["player_id"] for r in cur_players}
+
+    # 각 구단에서 overall 기준 상위 5명 선택
+    added_players = []
+    for club_name, club_id in DBPBL_CLUB_MAP.items():
+        candidates = [
+            r for r in dbpbl_by_club[club_name]
+            if r["player_id"] not in existing_ids
+        ]
+        top5 = sorted(candidates, key=lambda x: int(x["overall"]), reverse=True)[:5]
+        for r in top5:
+            r["_mapped_club_id"] = club_id
+            added_players.append(r)
+            existing_ids.add(r["player_id"])
+
+    print(f"  DBPBL 추가 선수: {len(added_players)}명 "
+          f"(9구단 x 5명 = {9*5}명 목표)")
+
+    lines = []
+    lines += [
+        "-- =====================================================",
+        "-- K리그 이적시장 기반 스토브리그 체험 DB 시스템",
+        "-- DML SAMPLE -- PLAYER / PLAYER_STATS / CONTRACT / TRANSFER_MARKET",
+        "-- (csv_to_sql.py 자동 생성)",
+        "-- =====================================================",
+        "", "USE kleague_db;", "",
+    ]
+
+    # ── PLAYER ────────────────────────────────────────────────────
+    lines += [
+        "-- =====================================================",
+        "-- 1. PLAYER",
+        "--   기존 data/ : 132명 (12구단 x 11명)",
+        "--   DBPBL 추가 :  45명 (9구단 x  5명)",
+        "--   합계       : 177명",
+        "-- =====================================================",
+        "INSERT INTO PLAYER",
+        "    (player_id, club_id, name, nationality,",
+        "     birth_date, position, height, weight)",
+        "VALUES",
+    ]
+    p_rows = []
+
+    # 기존 선수
+    for p in cur_players:
+        pos = p["position_group"].strip()
+        if pos not in ("GK","DF","MF","FW"):
+            continue
+        h = p.get("height_cm","").strip()
+        w = p.get("weight_kg","").strip()
+        p_rows.append(
+            f"({p['player_id']}, {p['club_id']}, {esc(p['player_name'])}, "
+            f"{esc(p['nationality'])}, {esc(p['birth_date'])}, "
+            f"{esc(pos)}, "
+            f"{'NULL' if not h else h}, {'NULL' if not w else w})"
+        )
+
+    # DBPBL 추가 선수
+    for p in added_players:
+        pos = p["position_group"].strip()
+        if pos not in ("GK","DF","MF","FW"):
+            continue
+        name = p["long_name"][:50]
+        h = p.get("height_cm","").strip()
+        w = p.get("weight_kg","").strip()
+        p_rows.append(
+            f"({p['player_id']}, {p['_mapped_club_id']}, {esc(name)}, "
+            f"{esc(p['nationality'])}, {esc(p['dob'])}, "
+            f"{esc(pos)}, "
+            f"{'NULL' if not h else h}, {'NULL' if not w else w})"
+        )
+
+    lines.append(",\n".join(p_rows) + ";")
+    lines.append("")
+
+    # ── PLAYER_STATS ──────────────────────────────────────────────
+    lines += [
+        "-- =====================================================",
+        "-- 2. PLAYER_STATS",
+        "--   기존: shooting->attack, defending->defense, physical->stamina, pace->speed",
+        "--   DBPBL: shooting->attack, defending->defense, physic->stamina, pace->speed",
+        "-- =====================================================",
+        "INSERT INTO PLAYER_STATS (player_id, attack, defense, stamina, speed)",
+        "VALUES",
+    ]
+    s_rows = []
+
+    for p in cur_players:
+        pid = p["player_id"]
+        s = cur_stats.get(pid)
+        if not s:
+            continue
+        s_rows.append(
+            f"({pid}, {s['shooting']}, {s['defending']}, "
+            f"{s['physical']}, {s['pace']})"
+        )
+
+    for p in added_players:
+        pid = p["player_id"]
+        s_rows.append(
+            f"({pid}, {p['shooting']}, {p['defending']}, "
+            f"{p['physic']}, {p['pace']})"
+        )
+
+    lines.append(",\n".join(s_rows) + ";")
+    lines.append("")
+
+    # ── CONTRACT ──────────────────────────────────────────────────
+    lines += [
+        "-- =====================================================",
+        "-- 3. CONTRACT",
+        "-- =====================================================",
+        "INSERT INTO CONTRACT (player_id, club_id, start_date, end_date, salary, status)",
+        "VALUES",
+    ]
+    c_rows = []
+
+    for p in cur_players:
+        pid = p["player_id"]
+        c = cur_contracts.get(pid)
+        if not c:
+            continue
+        c_rows.append(
+            f"({pid}, {c['club_id']}, {esc(c['start_date'])}, "
+            f"{null_or_date(c['end_date'])}, {c['salary_eur']}, "
+            f"{esc(c['status'])})"
+        )
+
+    for p in added_players:
+        pid = p["player_id"]
+        c_rows.append(
+            f"({pid}, {p['_mapped_club_id']}, '2024-01-01', "
+            f"NULL, {p['wage_eur']}, 'active')"
+        )
+
+    lines.append(",\n".join(c_rows) + ";")
+    lines.append("")
+
+    # ── TRANSFER_MARKET ───────────────────────────────────────────
+    lines += [
+        "-- =====================================================",
+        "-- 4. TRANSFER_MARKET  (기존 132명 + DBPBL 추가 45명)",
+        "-- =====================================================",
+        "INSERT INTO TRANSFER_MARKET",
+        "    (listing_id, player_id, seller_club_id, asking_fee, listed_date, status)",
+        "VALUES",
+    ]
+    m_rows = []
+
+    # 기존 132명
+    for row in cur_market:
+        m_rows.append(
+            f"({row['listing_id']}, {row['player_id']}, {row['seller_club_id']}, "
+            f"{row['asking_fee_eur']}, {esc(row['listed_date'])}, {esc(row['status'])})"
+        )
+
+    # DBPBL 추가 45명 (listing_id = 133 부터)
+    for i, p in enumerate(added_players, start=len(cur_market) + 1):
+        m_rows.append(
+            f"({i}, {p['player_id']}, {p['_mapped_club_id']}, "
+            f"{p['value_eur']}, '2026-06-01', 'available')"
+        )
+
+    lines.append(",\n".join(m_rows) + ";")
+    lines.append("")
+
+    # AUTO_INCREMENT 조정
+    lines += [
+        "-- AUTO_INCREMENT 상한 조정 (소스 ID 충돌 방지)",
+        "ALTER TABLE PLAYER AUTO_INCREMENT = 30000000;",
+        "",
+    ]
+
+    with open(SAMPLE_FILE, "w", encoding="utf-8") as f:
+        f.write("\n".join(lines))
+
+    print(f"[OK] {SAMPLE_FILE}")
+    print(f"     PLAYER: {len(p_rows)}명 (기존 {len(cur_players)} + DBPBL {len(added_players)})")
+    print(f"     PLAYER_STATS: {len(s_rows)}개")
+    print(f"     CONTRACT: {len(c_rows)}개")
+    print(f"     TRANSFER_MARKET: {len(m_rows)}개")
+
+
+def validate():
+    cur  = read_csv(os.path.join(DATA_DIR, "cleaned_players.csv"))
+    dbp  = read_csv(os.path.join(DBPBL_DIR, "cleaned_players.csv"))
+
+    from collections import Counter, defaultdict
+    cur_by_club  = Counter(r["club_id"] for r in cur)
+    dbpbl_by_club= defaultdict(list)
+    for r in dbp:
+        if r["club_name"] in DBPBL_CLUB_MAP:
+            dbpbl_by_club[DBPBL_CLUB_MAP[r["club_name"]]].append(r)
+
+    print("\n[Club player count after merge]")
+    club_names = {
+        1:"FC Seoul", 2:"Ulsan HD FC", 3:"Jeonbuk", 4:"Gangwon",
+        5:"Pohang", 6:"Incheon", 7:"FC Anyang", 8:"Jeju SK",
+        9:"Bucheon", 10:"Daejeon", 11:"Gimcheon", 12:"Gwangju"
+    }
+    for cid in range(1, 13):
+        cur_n  = cur_by_club.get(str(cid), 0)
+        add_n  = min(5, len(dbpbl_by_club.get(cid, [])))
+        total  = cur_n + add_n
+        note   = "" if cid not in [7, 9, 11] else " (DBPBL 미매핑, 11명 유지)"
+        print(f"  club {cid:2d} {club_names[cid]:25s}: {cur_n} + {add_n} = {total}명{note}")
+
+
+if __name__ == "__main__":
+    validate()
+    print()
+    gen_base()
+    gen_sample()
+    print("\nDone. SQL execution order:")
+    print("  kleague_ddl.sql -> kleague_dml_base.sql -> kleague_dml_sample.sql")
+    print("  -> kleague_extensions.sql -> kleague_procedures.sql")
