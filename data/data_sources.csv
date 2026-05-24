@@ -1,0 +1,5 @@
+source_id,source_name,source_url,used_for
+SRC_KLEAGUE_PLAYER,K League official player detail,https://www.kleague.com/record/playerDetail.do?playerId={PLAYER_ID},"player identity, team, position, number, nationality, height, weight, birth date"
+SRC_KLEAGUE_STATS,K League official player records,https://www.kleague.com/record/selectPersonalRecordByClub.do,"appearances, goals, assists, shots, cards"
+SRC_TRANSFERMARKT,Transfermarkt squad pages,stored per club/player in source CSV,"market value, foot, detailed position, joined date, contract date"
+SRC_SIM_RULE,Simulation rules,local project rule,"budget, manager rating, salary, simulator ability scores"

@@ -1,47 +1,52 @@
--- =====================================================
--- K리그 이적시장 기반 스토브리그 체험 DB 시스템
--- STORED PROCEDURES
--- ※ 재실행 시 기존 프로시저 삭제 후 재생성
--- =====================================================
-
 USE kleague_db;
 
 DROP PROCEDURE IF EXISTS sp_buy_player;
 DROP PROCEDURE IF EXISTS sp_release_player;
 DROP PROCEDURE IF EXISTS sp_create_squad_battle;
+DROP PROCEDURE IF EXISTS sp_list_player_for_transfer;
+DROP FUNCTION IF EXISTS fn_squad_score;
 
--- =====================================================
--- PROCEDURE 1. sp_buy_player (선수 영입)
--- 호출 예시: CALL sp_buy_player(1, 9);
---   p_user_id    : 영입을 진행하는 유저 ID
---   p_listing_id : 구매할 매물 ID
---
--- 처리 순서:
---   1.  유저 구단 조회
---   2.  매물 정보 조회
---   3.  매물 available 확인
---   4.  자기 구단 선수 영입 방지
---   5.  구매 구단 예산 확인
---   6.  기존 CONTRACT expired 처리
---   7.  새 CONTRACT active 생성
---   8.  PLAYER.club_id 변경
---   9.  TRANSFER_HISTORY 기록  ← 예산 차감 전 먼저 실행 (트리거 충돌 방지)
---   10. 구매 구단 current_budget 감소
---   11. 판매 구단 current_budget 증가
---   12. TRANSFER_MARKET status = 'sold'
--- =====================================================
 DELIMITER $$
-CREATE PROCEDURE sp_buy_player(
-    IN p_user_id    INT,
-    IN p_listing_id INT
-)
+
+CREATE FUNCTION fn_squad_score(p_club_id INT)
+RETURNS DECIMAL(6,2)
+READS SQL DATA
 BEGIN
-    DECLARE v_buyer_club_id  INT;
-    DECLARE v_player_id      INT;
+    DECLARE v_avg_overall DECIMAL(6,2);
+    DECLARE v_manager_rating TINYINT;
+    DECLARE v_score DECIMAL(6,2);
+
+    SELECT ROUND(AVG(ps.overall), 2)
+      INTO v_avg_overall
+    FROM players p
+    JOIN player_stats ps
+      ON ps.player_id = p.player_id
+    WHERE p.club_id = p_club_id
+      AND p.squad_role = 'starter';
+
+    SELECT rating
+      INTO v_manager_rating
+    FROM managers
+    WHERE club_id = p_club_id;
+
+    IF v_avg_overall IS NULL OR v_manager_rating IS NULL THEN
+        RETURN NULL;
+    END IF;
+
+    SET v_score = ROUND(v_avg_overall * 0.8 + v_manager_rating * 0.2, 2);
+
+    RETURN v_score;
+END$$
+
+CREATE PROCEDURE sp_buy_player(IN p_user_id INT, IN p_listing_id INT)
+BEGIN
+    DECLARE v_buyer_club_id INT;
     DECLARE v_seller_club_id INT;
-    DECLARE v_asking_fee     DECIMAL(15,2);
-    DECLARE v_market_status  VARCHAR(10);
-    DECLARE v_buyer_budget   DECIMAL(15,2);
+    DECLARE v_player_id INT;
+    DECLARE v_fee DECIMAL(15,2);
+    DECLARE v_status VARCHAR(20);
+    DECLARE v_buyer_budget DECIMAL(15,2);
+    DECLARE v_player_name VARCHAR(120);
 
     DECLARE EXIT HANDLER FOR SQLEXCEPTION
     BEGIN
@@ -51,122 +56,88 @@ BEGIN
 
     START TRANSACTION;
 
-    -- 1. 유저의 구단 조회
     SELECT club_id INTO v_buyer_club_id
-    FROM APP_USER WHERE user_id = p_user_id;
+    FROM app_users
+    WHERE user_id = p_user_id;
 
     IF v_buyer_club_id IS NULL THEN
-        SIGNAL SQLSTATE '45000'
-        SET MESSAGE_TEXT = '존재하지 않는 유저입니다.';
+        SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'User does not exist';
     END IF;
 
-    -- 2. 매물 정보 조회
-    SELECT player_id, seller_club_id, asking_fee, status
-    INTO v_player_id, v_seller_club_id, v_asking_fee, v_market_status
-    FROM TRANSFER_MARKET WHERE listing_id = p_listing_id;
+    SELECT tm.player_id, tm.seller_club_id, tm.asking_fee_eur, tm.status, p.player_name
+      INTO v_player_id, v_seller_club_id, v_fee, v_status, v_player_name
+    FROM transfer_market tm
+    JOIN players p ON tm.player_id = p.player_id
+    WHERE tm.listing_id = p_listing_id
+    FOR UPDATE;
 
-    IF v_player_id IS NULL THEN
-        SIGNAL SQLSTATE '45000'
-        SET MESSAGE_TEXT = '존재하지 않는 매물입니다.';
+    IF v_status <> 'available' THEN
+        SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Listing is not available';
     END IF;
 
-    -- 3. 매물 available 상태 확인
-    IF v_market_status <> 'available' THEN
-        SIGNAL SQLSTATE '45000'
-        SET MESSAGE_TEXT = '이미 거래가 완료되었거나 취소된 매물입니다.';
-    END IF;
-
-    -- 4. 자기 구단 선수 영입 방지
     IF v_buyer_club_id = v_seller_club_id THEN
-        SIGNAL SQLSTATE '45000'
-        SET MESSAGE_TEXT = '자신의 구단 선수는 영입할 수 없습니다.';
+        SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Cannot buy a player from your own club';
     END IF;
 
-    -- 5. 구매 구단 예산 확인
-    SELECT current_budget INTO v_buyer_budget
-    FROM CLUB WHERE club_id = v_buyer_club_id;
+    SELECT current_budget_eur INTO v_buyer_budget
+    FROM clubs
+    WHERE club_id = v_buyer_club_id
+    FOR UPDATE;
 
-    IF v_buyer_budget < v_asking_fee THEN
-        SIGNAL SQLSTATE '45000'
-        SET MESSAGE_TEXT = '예산이 부족하여 영입이 불가능합니다.';
+    IF v_buyer_budget < v_fee THEN
+        SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Not enough budget';
     END IF;
 
-    -- 6. 기존 CONTRACT expired 처리
-    UPDATE CONTRACT
+    UPDATE contracts
     SET status = 'expired'
     WHERE player_id = v_player_id AND status = 'active';
 
-    -- 7. 새 CONTRACT active 생성
-    INSERT INTO CONTRACT (player_id, club_id, start_date, end_date, salary, status)
-    VALUES (v_player_id, v_buyer_club_id, CURDATE(),
-            DATE_ADD(CURDATE(), INTERVAL 3 YEAR), v_asking_fee * 0.1, 'active');
+    INSERT INTO contracts (player_id, club_id, start_date, end_date, salary_eur, status)
+    VALUES (v_player_id, v_buyer_club_id, CURDATE(), DATE_ADD(CURDATE(), INTERVAL 2 YEAR), GREATEST(v_fee * 0.08, 30000), 'active');
 
-    -- 8. PLAYER.club_id 변경
-    UPDATE PLAYER SET club_id = v_buyer_club_id WHERE player_id = v_player_id;
+    UPDATE players
+    SET club_id = v_buyer_club_id,
+        joined_date = CURDATE(),
+        contract_until = DATE_ADD(CURDATE(), INTERVAL 2 YEAR),
+        squad_role = 'sub'
+    WHERE player_id = v_player_id;
 
-    -- 9. TRANSFER_HISTORY 기록 (예산 차감 전 먼저)
-    --    → 트리거가 현재 예산 기준으로 체크하므로
-    --      이 시점에 예산이 아직 차감되지 않아 트리거 정상 통과
-    INSERT INTO TRANSFER_HISTORY
-        (player_id, from_club_id, to_club_id, transfer_type, fee, transfer_date)
-    VALUES
-        (v_player_id, v_seller_club_id, v_buyer_club_id, 'transfer', v_asking_fee, CURDATE());
-
-    -- 10. 구매 구단 예산 감소
-    UPDATE CLUB SET current_budget = current_budget - v_asking_fee
+    UPDATE clubs
+    SET current_budget_eur = current_budget_eur - v_fee
     WHERE club_id = v_buyer_club_id;
 
-    -- 11. 판매 구단 예산 증가
-    UPDATE CLUB SET current_budget = current_budget + v_asking_fee
+    UPDATE clubs
+    SET current_budget_eur = current_budget_eur + v_fee
     WHERE club_id = v_seller_club_id;
 
-    -- 12. 매물 상태 sold 변경
-    UPDATE TRANSFER_MARKET SET status = 'sold' WHERE listing_id = p_listing_id;
+    UPDATE transfer_market
+    SET status = 'sold'
+    WHERE listing_id = p_listing_id;
+
+    INSERT INTO transfer_history
+        (player_id, from_club_id, to_club_id, transfer_type, fee_eur, transfer_date, created_by_user_id, memo)
+    VALUES
+        (v_player_id, v_seller_club_id, v_buyer_club_id, 'buy', v_fee, CURDATE(), p_user_id, 'Completed through sp_buy_player');
 
     COMMIT;
 
-    -- 영입 결과 확인
     SELECT
-        p.name                  AS player_name,
-        p.position,
-        bc.name                 AS new_club,
-        sc.name                 AS prev_club,
-        FORMAT(v_asking_fee, 0) AS transfer_fee,
-        FORMAT(bc.current_budget, 0) AS buyer_remaining_budget,
-        FORMAT(sc.current_budget, 0) AS seller_remaining_budget
-    FROM PLAYER p
-    JOIN CLUB bc ON p.club_id        = bc.club_id
-    JOIN CLUB sc ON v_seller_club_id = sc.club_id
-    WHERE p.player_id = v_player_id;
-
+        'BUY_COMPLETED' AS result_code,
+        v_player_name AS player_name,
+        v_fee AS fee_eur,
+        v_seller_club_id AS from_club_id,
+        v_buyer_club_id AS to_club_id;
 END$$
-DELIMITER ;
 
-
--- =====================================================
--- PROCEDURE 2. sp_release_player (선수 방출)
--- 호출 예시: CALL sp_release_player(1, 4);
---   p_user_id   : 방출을 진행하는 유저 ID
---   p_player_id : 방출할 선수 ID
---
--- 처리 순서:
---   1. 유저 구단 확인
---   2. 선수가 해당 구단 소속인지 확인
---   3. 기존 CONTRACT expired 처리
---   4. PLAYER.club_id = NULL
---   5. TRANSFER_HISTORY에 release 기록
---
--- ※ 방출 후 이적시장 등록은 하지 않음
---   (PLAYER.club_id = NULL이면 seller 트리거에서 차단)
--- =====================================================
-DELIMITER $$
-CREATE PROCEDURE sp_release_player(
-    IN p_user_id   INT,
-    IN p_player_id INT
-)
+CREATE PROCEDURE sp_release_player(IN p_user_id INT, IN p_player_id INT)
 BEGIN
-    DECLARE v_club_id     INT;
-    DECLARE v_player_club INT;
+    DECLARE v_user_club_id INT;
+    DECLARE v_player_club_id INT;
+    DECLARE v_player_name VARCHAR(120);
+    DECLARE v_player_role VARCHAR(10);
+    DECLARE v_player_position_group VARCHAR(5);
+    DECLARE v_promoted_player_id INT;
+    DECLARE v_promoted_player_name VARCHAR(120);
 
     DECLARE EXIT HANDLER FOR SQLEXCEPTION
     BEGIN
@@ -176,93 +147,107 @@ BEGIN
 
     START TRANSACTION;
 
-    -- 1. 유저의 구단 조회
-    SELECT club_id INTO v_club_id
-    FROM APP_USER WHERE user_id = p_user_id;
+    SELECT club_id INTO v_user_club_id
+    FROM app_users
+    WHERE user_id = p_user_id;
 
-    IF v_club_id IS NULL THEN
-        SIGNAL SQLSTATE '45000'
-        SET MESSAGE_TEXT = '존재하지 않는 유저입니다.';
+    SELECT club_id, player_name, squad_role, position_group
+      INTO v_player_club_id, v_player_name, v_player_role, v_player_position_group
+    FROM players
+    WHERE player_id = p_player_id
+    FOR UPDATE;
+
+    IF v_player_club_id IS NULL THEN
+        SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Player is already released';
     END IF;
 
-    -- 2. 선수가 해당 구단 소속인지 확인
-    SELECT club_id INTO v_player_club
-    FROM PLAYER WHERE player_id = p_player_id;
-
-    IF v_player_club IS NULL OR v_player_club <> v_club_id THEN
-        SIGNAL SQLSTATE '45000'
-        SET MESSAGE_TEXT = '해당 구단 소속 선수가 아닙니다.';
+    IF v_user_club_id <> v_player_club_id THEN
+        SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'User can release only own club players';
     END IF;
 
-    -- 3. 기존 CONTRACT expired 처리
-    UPDATE CONTRACT
-    SET status = 'expired'
+    IF v_player_role = 'starter' THEN
+        SET v_promoted_player_id = NULL;
+        SET v_promoted_player_name = NULL;
+
+        SELECT p.player_id, p.player_name
+          INTO v_promoted_player_id, v_promoted_player_name
+        FROM players p
+        JOIN player_stats ps
+          ON ps.player_id = p.player_id
+        WHERE p.club_id = v_player_club_id
+          AND p.squad_role = 'sub'
+          AND p.position_group = v_player_position_group
+        ORDER BY ps.overall DESC, p.player_id
+        LIMIT 1
+        FOR UPDATE;
+
+        IF v_promoted_player_id IS NULL THEN
+            SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = '해당 포지션 후보가 없어 선발 11명을 유지할 수 없습니다.';
+        END IF;
+
+        UPDATE players
+        SET squad_role = 'starter'
+        WHERE player_id = v_promoted_player_id;
+    END IF;
+
+    UPDATE contracts
+    SET status = 'released', end_date = CURDATE()
     WHERE player_id = p_player_id AND status = 'active';
 
-    -- 4. PLAYER.club_id = NULL (소속 없음)
-    UPDATE PLAYER SET club_id = NULL WHERE player_id = p_player_id;
+    UPDATE transfer_market
+    SET status = 'cancelled'
+    WHERE player_id = p_player_id AND status = 'available';
 
-    -- 5. TRANSFER_HISTORY에 release 기록
-    INSERT INTO TRANSFER_HISTORY
-        (player_id, from_club_id, to_club_id, transfer_type, fee, transfer_date)
+    UPDATE players
+    SET club_id = NULL,
+        squad_role = 'sub'
+    WHERE player_id = p_player_id;
+
+    INSERT INTO transfer_history
+        (player_id, from_club_id, to_club_id, transfer_type, fee_eur, transfer_date, created_by_user_id, memo)
     VALUES
-        (p_player_id, v_club_id, NULL, 'release', 0, CURDATE());
+        (p_player_id, v_player_club_id, NULL, 'release', 0, CURDATE(), p_user_id, 'Released through sp_release_player');
 
     COMMIT;
 
-    -- 방출 결과 확인
-    SELECT
-        p.name    AS player_name,
-        p.position,
-        p.club_id AS current_club,  -- NULL이면 방출 완료
-        p.nationality
-    FROM PLAYER p WHERE p.player_id = p_player_id;
-
+    SELECT 'RELEASE_COMPLETED' AS result_code, v_player_name AS player_name, v_player_club_id AS from_club_id;
 END$$
-DELIMITER ;
 
-
--- =====================================================
--- PROCEDURE 3. sp_create_squad_battle (스쿼드 대결)
--- 호출 예시: CALL sp_create_squad_battle(1, 2);
---   p_home_club_id : 홈 구단 ID
---   p_away_club_id : 원정 구단 ID
---
--- 처리 순서:
---   1. 같은 구단끼리 대결 방지
---   2. fn_squad_score()로 양팀 점수 계산
---   3. 점수 비교 → result 결정
---   4. SQUAD_BATTLE에 저장
--- =====================================================
-DELIMITER $$
-CREATE PROCEDURE sp_create_squad_battle(
-    IN p_home_club_id INT,
-    IN p_away_club_id INT
-)
+CREATE PROCEDURE sp_create_squad_battle(IN p_home_club_id INT, IN p_away_club_id INT)
 BEGIN
     DECLARE v_home_score DECIMAL(6,2);
     DECLARE v_away_score DECIMAL(6,2);
-    DECLARE v_result     VARCHAR(5);
+    DECLARE v_result VARCHAR(10);
+    DECLARE v_home_starter_count INT;
+    DECLARE v_away_starter_count INT;
 
-    DECLARE EXIT HANDLER FOR SQLEXCEPTION
-    BEGIN
-        ROLLBACK;
-        RESIGNAL;
-    END;
-
-    START TRANSACTION;
-
-    -- 1. 같은 구단 대결 방지
     IF p_home_club_id = p_away_club_id THEN
-        SIGNAL SQLSTATE '45000'
-        SET MESSAGE_TEXT = '같은 구단끼리는 대결할 수 없습니다.';
+        SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Home and away clubs must be different';
     END IF;
 
-    -- 2. 스쿼드 점수 계산
-    SET v_home_score = fn_squad_score(p_home_club_id);
+    SELECT COUNT(*)
+      INTO v_home_starter_count
+    FROM players
+    WHERE club_id = p_home_club_id
+      AND squad_role = 'starter';
+
+    SELECT COUNT(*)
+      INTO v_away_starter_count
+    FROM players
+    WHERE club_id = p_away_club_id
+      AND squad_role = 'starter';
+
+    IF v_home_starter_count <> 11 OR v_away_starter_count <> 11 THEN
+        SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = '선발 선수가 11명이 아니므로 스쿼드 배틀을 진행할 수 없습니다.';
+    END IF;
+
+    SET v_home_score = fn_squad_score(p_home_club_id) + 2;
     SET v_away_score = fn_squad_score(p_away_club_id);
 
-    -- 3. 결과 결정
+    IF v_home_score IS NULL OR v_away_score IS NULL THEN
+        SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Club score not found';
+    END IF;
+
     IF v_home_score > v_away_score THEN
         SET v_result = 'home';
     ELSEIF v_home_score < v_away_score THEN
@@ -271,110 +256,49 @@ BEGIN
         SET v_result = 'draw';
     END IF;
 
-    -- 4. SQUAD_BATTLE에 저장
-    INSERT INTO SQUAD_BATTLE
+    INSERT INTO squad_battles
         (home_club_id, away_club_id, home_score, away_score, result, battle_date)
     VALUES
         (p_home_club_id, p_away_club_id, v_home_score, v_away_score, v_result, CURDATE());
 
-    COMMIT;
-
-    -- 대결 결과 확인
     SELECT
-        hc.name      AS home_club,
-        ac.name      AS away_club,
+        LAST_INSERT_ID() AS battle_id,
+        p_home_club_id AS home_club_id,
+        p_away_club_id AS away_club_id,
         v_home_score AS home_score,
         v_away_score AS away_score,
-        v_result     AS result,
-        CURDATE()    AS battle_date
-    FROM CLUB hc, CLUB ac
-    WHERE hc.club_id = p_home_club_id
-      AND ac.club_id = p_away_club_id;
-
+        v_result AS result;
 END$$
+
+CREATE PROCEDURE sp_list_player_for_transfer(IN p_user_id INT, IN p_player_id INT, IN p_asking_fee_eur DECIMAL(15,2))
+BEGIN
+    DECLARE v_user_club_id INT;
+    DECLARE v_player_club_id INT;
+    DECLARE v_new_listing_id INT;
+
+    SELECT club_id INTO v_user_club_id
+    FROM app_users
+    WHERE user_id = p_user_id;
+
+    SELECT club_id INTO v_player_club_id
+    FROM players
+    WHERE player_id = p_player_id;
+
+    IF v_user_club_id <> v_player_club_id THEN
+        SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'User can list only own club players';
+    END IF;
+
+    IF p_asking_fee_eur < 0 THEN
+        SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Asking fee cannot be negative';
+    END IF;
+
+    SELECT IFNULL(MAX(listing_id), 0) + 1 INTO v_new_listing_id
+    FROM transfer_market;
+
+    INSERT INTO transfer_market (listing_id, player_id, seller_club_id, asking_fee_eur, listed_date, status)
+    VALUES (v_new_listing_id, p_player_id, v_user_club_id, p_asking_fee_eur, CURDATE(), 'available');
+
+    SELECT 'LISTING_CREATED' AS result_code, p_player_id AS player_id, p_asking_fee_eur AS asking_fee_eur;
+END$$
+
 DELIMITER ;
-
-
--- =====================================================
--- 발표용 시연 순서
--- =====================================================
-
--- [STEP 1] 초기 상태 확인
-SELECT '== 초기 스쿼드 점수 순위 ==' AS info;
-SELECT * FROM V_SQUAD_SCORE ORDER BY squad_score DESC;
-
-SELECT '== 초기 예산 현황 ==' AS info;
-SELECT * FROM V_CLUB_BUDGET ORDER BY current_budget DESC;
-
-SELECT '== 이적시장 매물 목록 ==' AS info;
-SELECT * FROM V_TRANSFER_MARKET;
-
-SELECT '== 계약 만료 임박 선수 ==' AS info;
-SELECT * FROM V_EXPIRING_CONTRACTS;
-
--- [STEP 2] 영입 실행: 울산(user=1)이 양현준(listing=9) 영입
-SELECT '== 영입 실행: 울산이 양현준(강원) 영입 ==' AS info;
-CALL sp_buy_player(1, 9);
-
--- [STEP 3] 영입 후 상태 확인
-SELECT '== 영입 후 예산 변화 ==' AS info;
-SELECT name,
-       FORMAT(initial_budget, 0)                        AS initial,
-       FORMAT(current_budget, 0)                        AS current,
-       FORMAT(initial_budget - current_budget, 0)       AS spent
-FROM CLUB WHERE club_id IN (1, 9);
-
-SELECT '== 영입 후 선수 소속 확인 ==' AS info;
-SELECT player_id, name, club_id FROM PLAYER WHERE player_id = 36;
-
-SELECT '== 계약 상태 변화 확인 ==' AS info;
-SELECT contract_id, club_id, start_date, end_date, status
-FROM CONTRACT WHERE player_id = 36 ORDER BY contract_id;
-
-SELECT '== 이적 기록 확인 ==' AS info;
-SELECT th.transfer_id, p.name AS player,
-       fc.name AS from_club, tc.name AS to_club,
-       th.transfer_type, FORMAT(th.fee, 0) AS fee, th.transfer_date
-FROM TRANSFER_HISTORY th
-JOIN  PLAYER p  ON th.player_id    = p.player_id
-LEFT JOIN CLUB fc ON th.from_club_id = fc.club_id
-LEFT JOIN CLUB tc ON th.to_club_id   = tc.club_id;
-
-SELECT '== 매물 상태 변화 확인 ==' AS info;
-SELECT * FROM TRANSFER_MARKET WHERE player_id = 36;
-
--- [STEP 4] 방출 실행: 울산(user=1)이 레오나르도(player=4) 방출
-SELECT '== 방출 실행: 울산이 레오나르도 방출 ==' AS info;
-CALL sp_release_player(1, 4);
-
-SELECT '== 방출 후 선수 소속 확인 (NULL = 방출 완료) ==' AS info;
-SELECT player_id, name, club_id FROM PLAYER WHERE player_id = 4;
-
-SELECT '== 방출 후 이적 기록 확인 ==' AS info;
-SELECT th.transfer_id, p.name AS player,
-       fc.name AS from_club, tc.name AS to_club,
-       th.transfer_type, FORMAT(th.fee, 0) AS fee, th.transfer_date
-FROM TRANSFER_HISTORY th
-JOIN  PLAYER p  ON th.player_id    = p.player_id
-LEFT JOIN CLUB fc ON th.from_club_id = fc.club_id
-LEFT JOIN CLUB tc ON th.to_club_id   = tc.club_id;
-
--- [STEP 5] 이미 거래된 매물 재영입 시도 (에러 시연)
-SELECT '== 에러 시연: 이미 sold된 매물 재영입 시도 ==' AS info;
--- CALL sp_buy_player(1, 9);  -- 주석 해제하면 에러 메시지 확인 가능
-
--- [STEP 6] 스쿼드 대결: 울산(1) vs 전북(2)
-SELECT '== 스쿼드 대결: 울산 vs 전북 ==' AS info;
-CALL sp_create_squad_battle(1, 2);
-
--- [STEP 7] 최종 상태 확인
-SELECT '== 최종 스쿼드 점수 순위 ==' AS info;
-SELECT * FROM V_SQUAD_SCORE ORDER BY squad_score DESC;
-
-SELECT '== 대결 결과 전체 ==' AS info;
-SELECT hc.name AS home_club, ac.name AS away_club,
-       sb.home_score, sb.away_score, sb.result, sb.battle_date
-FROM SQUAD_BATTLE sb
-JOIN CLUB hc ON sb.home_club_id = hc.club_id
-JOIN CLUB ac ON sb.away_club_id = ac.club_id;
-

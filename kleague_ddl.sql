@@ -1,391 +1,340 @@
--- =====================================================
--- K리그 이적시장 기반 스토브리그 체험 DB 시스템
--- DDL (Data Definition Language)
--- ※ 재실행 시 기존 DB 삭제 후 새로 생성
--- =====================================================
-
 DROP DATABASE IF EXISTS kleague_db;
-
 CREATE DATABASE kleague_db
   DEFAULT CHARACTER SET utf8mb4
   DEFAULT COLLATE utf8mb4_unicode_ci;
-
 USE kleague_db;
 
--- =====================================================
--- 1. CLUB (구단)
--- =====================================================
-CREATE TABLE CLUB (
-    club_id          INT            NOT NULL AUTO_INCREMENT,
-    name             VARCHAR(50)    NOT NULL,
-    city             VARCHAR(30)    NOT NULL,
-    founded_year     YEAR           NOT NULL,
-    stadium_name     VARCHAR(50)    NOT NULL,
-    stadium_location VARCHAR(100)   NOT NULL,
-    stadium_capacity INT            NOT NULL,
-    initial_budget   DECIMAL(15,2)  NOT NULL,
-    current_budget   DECIMAL(15,2)  NOT NULL,
+CREATE TABLE data_sources (
+    source_id VARCHAR(40) PRIMARY KEY,
+    source_name VARCHAR(120) NOT NULL,
+    source_url VARCHAR(500) NOT NULL,
+    used_for VARCHAR(500) NOT NULL
+) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
+CREATE TABLE clubs (
+    club_id INT NOT NULL,
+    source_team_id VARCHAR(10) NOT NULL UNIQUE,
+    club_name VARCHAR(100) NOT NULL UNIQUE,
+    city VARCHAR(80) NOT NULL,
+    founded_year SMALLINT NOT NULL,
+    stadium_name VARCHAR(120) NOT NULL,
+    stadium_capacity INT NOT NULL,
+    initial_budget_eur DECIMAL(15,2) NOT NULL,
+    current_budget_eur DECIMAL(15,2) NOT NULL,
+    total_spent_eur DECIMAL(15,2) DEFAULT 0,
+    club_homepage VARCHAR(255),
+    data_source_url VARCHAR(500),
     PRIMARY KEY (club_id),
+    CONSTRAINT chk_club_capacity CHECK (stadium_capacity > 0),
+    CONSTRAINT chk_club_initial_budget CHECK (initial_budget_eur >= 0),
+    CONSTRAINT chk_club_current_budget CHECK (current_budget_eur >= 0)
+) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
-    CONSTRAINT chk_stadium_capacity CHECK (stadium_capacity > 0),
-    CONSTRAINT chk_initial_budget   CHECK (initial_budget >= 0),
-    CONSTRAINT chk_current_budget   CHECK (current_budget >= 0)
-);
-
--- =====================================================
--- 2. MANAGER (감독)
--- =====================================================
-CREATE TABLE MANAGER (
-    manager_id  INT          NOT NULL AUTO_INCREMENT,
-    club_id     INT          NOT NULL UNIQUE,
-    name        VARCHAR(50)  NOT NULL,
-    nationality VARCHAR(30)  NOT NULL,
-    birth_date  DATE         NOT NULL,
-    tactics     VARCHAR(20)  NOT NULL,
-    rating      INT          NOT NULL,
-
+CREATE TABLE managers (
+    manager_id INT NOT NULL,
+    club_id INT NOT NULL UNIQUE,
+    manager_name VARCHAR(100) NOT NULL,
+    nationality VARCHAR(80) NOT NULL,
+    preferred_formation VARCHAR(20) NOT NULL,
+    rating TINYINT NOT NULL,
+    rating_source VARCHAR(40) NOT NULL DEFAULT 'SIMULATION_RULE',
     PRIMARY KEY (manager_id),
-    FOREIGN KEY (club_id) REFERENCES CLUB(club_id),
-
+    CONSTRAINT fk_managers_club FOREIGN KEY (club_id) REFERENCES clubs(club_id),
     CONSTRAINT chk_manager_rating CHECK (rating BETWEEN 1 AND 99)
-);
+) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
--- =====================================================
--- 3. PLAYER (선수)
--- =====================================================
-CREATE TABLE PLAYER (
-    player_id   INT          NOT NULL AUTO_INCREMENT,
-    club_id     INT          NULL,
-    name        VARCHAR(50)  NOT NULL,
-    nationality VARCHAR(30)  NOT NULL,
-    birth_date  DATE         NOT NULL,
-    position    VARCHAR(10)  NOT NULL,
-    height      INT          NULL,
-    weight      INT          NULL,
-
+CREATE TABLE players (
+    player_id INT NOT NULL,
+    source_player_id VARCHAR(20) NOT NULL UNIQUE,
+    club_id INT NULL,
+    original_club_id INT NULL,
+    player_name VARCHAR(120) NOT NULL,
+    nationality VARCHAR(80) NOT NULL,
+    birth_date DATE NULL,
+    age SMALLINT NULL,
+    position_group ENUM('GK','DF','MF','FW') NOT NULL,
+    primary_position VARCHAR(60) NOT NULL,
+    squad_number SMALLINT NULL,
+    squad_role ENUM('starter','sub') NOT NULL DEFAULT 'starter',
+    height_cm SMALLINT NULL,
+    weight_kg SMALLINT NULL,
+    preferred_foot VARCHAR(20) NOT NULL DEFAULT 'Unknown',
+    market_value_eur DECIMAL(15,2) NOT NULL DEFAULT 0,
+    contract_until DATE NULL,
+    joined_date DATE NULL,
+    profile_source_url VARCHAR(500),
+    value_source_url VARCHAR(500),
     PRIMARY KEY (player_id),
-    FOREIGN KEY (club_id) REFERENCES CLUB(club_id),
+    CONSTRAINT fk_players_club FOREIGN KEY (club_id) REFERENCES clubs(club_id),
+    CONSTRAINT chk_player_age CHECK (age IS NULL OR age BETWEEN 14 AND 60),
+    CONSTRAINT chk_player_height CHECK (height_cm IS NULL OR height_cm BETWEEN 140 AND 220),
+    CONSTRAINT chk_player_weight CHECK (weight_kg IS NULL OR weight_kg BETWEEN 40 AND 150),
+    CONSTRAINT chk_player_market_value CHECK (market_value_eur >= 0),
+    INDEX idx_players_club_position (club_id, position_group),
+    INDEX idx_players_club_role (club_id, squad_role),
+    INDEX idx_players_market_value (market_value_eur),
+    INDEX idx_players_name (player_name)
+) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
-    CONSTRAINT chk_position CHECK (position IN ('GK', 'DF', 'MF', 'FW')),
-    CONSTRAINT chk_height   CHECK (height BETWEEN 140 AND 220),
-    CONSTRAINT chk_weight   CHECK (weight BETWEEN 40 AND 150)
-);
+CREATE TABLE player_stats (
+    player_id INT NOT NULL,
+    appearances SMALLINT NOT NULL DEFAULT 0,
+    starts_estimated SMALLINT NOT NULL DEFAULT 0,
+    goals SMALLINT NOT NULL DEFAULT 0,
+    assists SMALLINT NOT NULL DEFAULT 0,
+    shots SMALLINT NOT NULL DEFAULT 0,
+    yellow_cards SMALLINT NOT NULL DEFAULT 0,
+    red_cards SMALLINT NOT NULL DEFAULT 0,
+    pace TINYINT NOT NULL,
+    shooting TINYINT NOT NULL,
+    passing TINYINT NOT NULL,
+    defending TINYINT NOT NULL,
+    physical TINYINT NOT NULL,
+    overall DECIMAL(5,2) GENERATED ALWAYS AS
+        (ROUND((pace + shooting + passing + defending + physical) / 5, 2)) STORED,
+    rating_source VARCHAR(40) NOT NULL DEFAULT 'DERIVED_PUBLIC_DATA',
+    PRIMARY KEY (player_id),
+    CONSTRAINT fk_stats_player FOREIGN KEY (player_id) REFERENCES players(player_id),
+    CONSTRAINT chk_stats_nonnegative CHECK (
+        appearances >= 0 AND starts_estimated >= 0 AND goals >= 0 AND assists >= 0
+        AND shots >= 0 AND yellow_cards >= 0 AND red_cards >= 0
+    ),
+    CONSTRAINT chk_stats_rating_range CHECK (
+        pace BETWEEN 1 AND 99 AND shooting BETWEEN 1 AND 99 AND passing BETWEEN 1 AND 99
+        AND defending BETWEEN 1 AND 99 AND physical BETWEEN 1 AND 99
+    ),
+    INDEX idx_stats_overall (overall)
+) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
--- =====================================================
--- 4. PLAYER_STATS (선수 능력치)
--- =====================================================
-CREATE TABLE PLAYER_STATS (
-    stat_id    INT           NOT NULL AUTO_INCREMENT,
-    player_id  INT           NOT NULL UNIQUE,
-    attack     INT           NOT NULL,
-    defense    INT           NOT NULL,
-    stamina    INT           NOT NULL,
-    speed      INT           NOT NULL,
-    overall    DECIMAL(5,2)  GENERATED ALWAYS AS
-                   (ROUND((attack + defense + stamina + speed) / 4, 2)) STORED,
-
-    PRIMARY KEY (stat_id),
-    FOREIGN KEY (player_id) REFERENCES PLAYER(player_id),
-
-    CONSTRAINT chk_attack  CHECK (attack  BETWEEN 1 AND 99),
-    CONSTRAINT chk_defense CHECK (defense BETWEEN 1 AND 99),
-    CONSTRAINT chk_stamina CHECK (stamina BETWEEN 1 AND 99),
-    CONSTRAINT chk_speed   CHECK (speed   BETWEEN 1 AND 99)
-);
-
--- =====================================================
--- 5. CONTRACT (계약)
--- =====================================================
-CREATE TABLE CONTRACT (
-    contract_id INT            NOT NULL AUTO_INCREMENT,
-    player_id   INT            NOT NULL,
-    club_id     INT            NOT NULL,
-    start_date  DATE           NOT NULL,
-    end_date    DATE           NOT NULL,
-    salary      DECIMAL(12,2)  NOT NULL,
-    status      VARCHAR(10)    NOT NULL DEFAULT 'active',
-
+CREATE TABLE contracts (
+    contract_id INT NOT NULL AUTO_INCREMENT,
+    player_id INT NOT NULL,
+    club_id INT NOT NULL,
+    start_date DATE NULL,
+    end_date DATE NULL,
+    salary_eur DECIMAL(15,2) NOT NULL DEFAULT 0,
+    status ENUM('active','expired','released') NOT NULL DEFAULT 'active',
     PRIMARY KEY (contract_id),
-    FOREIGN KEY (player_id) REFERENCES PLAYER(player_id),
-    FOREIGN KEY (club_id)   REFERENCES CLUB(club_id),
+    CONSTRAINT fk_contracts_player FOREIGN KEY (player_id) REFERENCES players(player_id),
+    CONSTRAINT fk_contracts_club FOREIGN KEY (club_id) REFERENCES clubs(club_id),
+    CONSTRAINT chk_contract_salary CHECK (salary_eur >= 0),
+    CONSTRAINT chk_contract_dates CHECK (end_date IS NULL OR start_date IS NULL OR end_date > start_date),
+    INDEX idx_contracts_player_status (player_id, status),
+    INDEX idx_contracts_club_status (club_id, status)
+) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
-    CONSTRAINT chk_contract_date   CHECK (end_date > start_date),
-    CONSTRAINT chk_salary          CHECK (salary >= 0),
-    CONSTRAINT chk_contract_status CHECK (status IN ('active', 'expired'))
-);
-
--- =====================================================
--- 6. TRANSFER_HISTORY (이적 기록)
--- =====================================================
-CREATE TABLE TRANSFER_HISTORY (
-    transfer_id   INT            NOT NULL AUTO_INCREMENT,
-    player_id     INT            NOT NULL,
-    from_club_id  INT            NULL,
-    to_club_id    INT            NULL,
-    transfer_type VARCHAR(15)    NOT NULL,
-    fee           DECIMAL(15,2)  NOT NULL DEFAULT 0,
-    transfer_date DATE           NOT NULL,
-
-    PRIMARY KEY (transfer_id),
-    FOREIGN KEY (player_id)    REFERENCES PLAYER(player_id),
-    FOREIGN KEY (from_club_id) REFERENCES CLUB(club_id),
-    FOREIGN KEY (to_club_id)   REFERENCES CLUB(club_id),
-
-    CONSTRAINT chk_transfer_type CHECK (transfer_type IN
-        ('transfer', 'loan', 'free_agent', 'rookie', 'release')),
-    CONSTRAINT chk_fee       CHECK (fee >= 0),
-    CONSTRAINT chk_diff_club CHECK (from_club_id != to_club_id)
-);
-
--- =====================================================
--- 7. SQUAD_BATTLE (스쿼드 대결)
--- =====================================================
-CREATE TABLE SQUAD_BATTLE (
-    battle_id     INT           NOT NULL AUTO_INCREMENT,
-    home_club_id  INT           NOT NULL,
-    away_club_id  INT           NOT NULL,
-    home_score    DECIMAL(6,2)  NOT NULL,
-    away_score    DECIMAL(6,2)  NOT NULL,
-    result        VARCHAR(5)    NOT NULL,
-    battle_date   DATE          NOT NULL,
-
-    PRIMARY KEY (battle_id),
-    FOREIGN KEY (home_club_id) REFERENCES CLUB(club_id),
-    FOREIGN KEY (away_club_id) REFERENCES CLUB(club_id),
-
-    CONSTRAINT chk_diff_battle_club CHECK (home_club_id != away_club_id),
-    CONSTRAINT chk_result           CHECK (result IN ('home', 'away', 'draw')),
-    CONSTRAINT chk_home_score       CHECK (home_score >= 0),
-    CONSTRAINT chk_away_score       CHECK (away_score >= 0)
-);
-
--- =====================================================
--- 8. APP_USER (유저)
--- =====================================================
-CREATE TABLE APP_USER (
-    user_id   INT          NOT NULL AUTO_INCREMENT,
-    username  VARCHAR(30)  NOT NULL,
-    club_id   INT          NOT NULL,
-
+CREATE TABLE app_users (
+    user_id INT NOT NULL,
+    username VARCHAR(60) NOT NULL UNIQUE,
+    club_id INT NOT NULL,
     PRIMARY KEY (user_id),
-    FOREIGN KEY (club_id) REFERENCES CLUB(club_id)
-);
+    CONSTRAINT fk_users_club FOREIGN KEY (club_id) REFERENCES clubs(club_id)
+) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
--- =====================================================
--- 9. TRANSFER_MARKET (이적시장 매물)
--- =====================================================
-CREATE TABLE TRANSFER_MARKET (
-    listing_id     INT            NOT NULL AUTO_INCREMENT,
-    player_id      INT            NOT NULL,
-    seller_club_id INT            NOT NULL,
-    asking_fee     DECIMAL(15,2)  NOT NULL,
-    listed_date    DATE           NOT NULL,
-    status         VARCHAR(10)    NOT NULL DEFAULT 'available',
-
+CREATE TABLE transfer_market (
+    listing_id INT NOT NULL,
+    player_id INT NOT NULL,
+    seller_club_id INT NOT NULL,
+    asking_fee_eur DECIMAL(15,2) NOT NULL,
+    listed_date DATE NOT NULL,
+    status ENUM('available','sold','cancelled') NOT NULL DEFAULT 'available',
     PRIMARY KEY (listing_id),
-    FOREIGN KEY (player_id)      REFERENCES PLAYER(player_id),
-    FOREIGN KEY (seller_club_id) REFERENCES CLUB(club_id),
+    CONSTRAINT fk_market_player FOREIGN KEY (player_id) REFERENCES players(player_id),
+    CONSTRAINT fk_market_seller FOREIGN KEY (seller_club_id) REFERENCES clubs(club_id),
+    CONSTRAINT chk_market_fee CHECK (asking_fee_eur >= 0),
+    INDEX idx_market_status_fee (status, asking_fee_eur),
+    INDEX idx_market_player_status (player_id, status)
+) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
-    CONSTRAINT chk_asking_fee    CHECK (asking_fee >= 0),
-    CONSTRAINT chk_market_status CHECK (status IN ('available', 'sold', 'cancelled'))
-);
+CREATE TABLE transfer_history (
+    transfer_id INT NOT NULL AUTO_INCREMENT,
+    player_id INT NOT NULL,
+    from_club_id INT NULL,
+    to_club_id INT NULL,
+    transfer_type ENUM('buy','sell','release','free_agent','loan') NOT NULL,
+    fee_eur DECIMAL(15,2) NOT NULL DEFAULT 0,
+    transfer_date DATE NOT NULL,
+    created_by_user_id INT NULL,
+    memo VARCHAR(500),
+    PRIMARY KEY (transfer_id),
+    CONSTRAINT fk_history_player FOREIGN KEY (player_id) REFERENCES players(player_id),
+    CONSTRAINT fk_history_from_club FOREIGN KEY (from_club_id) REFERENCES clubs(club_id),
+    CONSTRAINT fk_history_to_club FOREIGN KEY (to_club_id) REFERENCES clubs(club_id),
+    CONSTRAINT fk_history_user FOREIGN KEY (created_by_user_id) REFERENCES app_users(user_id),
+    CONSTRAINT chk_history_fee CHECK (fee_eur >= 0),
+    CONSTRAINT chk_history_has_side CHECK (from_club_id IS NOT NULL OR to_club_id IS NOT NULL),
+    CONSTRAINT chk_history_diff_club CHECK (from_club_id IS NULL OR to_club_id IS NULL OR from_club_id <> to_club_id),
+    INDEX idx_history_date (transfer_date),
+    INDEX idx_history_player (player_id)
+) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
--- =====================================================
--- VIEW 1. 구단별 예산 현황
--- =====================================================
-CREATE VIEW V_CLUB_BUDGET AS
+CREATE TABLE squad_battles (
+    battle_id INT NOT NULL AUTO_INCREMENT,
+    home_club_id INT NOT NULL,
+    away_club_id INT NOT NULL,
+    home_score DECIMAL(6,2) NOT NULL,
+    away_score DECIMAL(6,2) NOT NULL,
+    result ENUM('home','away','draw') NOT NULL,
+    battle_date DATE NOT NULL,
+    PRIMARY KEY (battle_id),
+    CONSTRAINT fk_battle_home FOREIGN KEY (home_club_id) REFERENCES clubs(club_id),
+    CONSTRAINT fk_battle_away FOREIGN KEY (away_club_id) REFERENCES clubs(club_id),
+    CONSTRAINT chk_battle_diff_club CHECK (home_club_id <> away_club_id),
+    INDEX idx_battle_date (battle_date)
+) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+
+CREATE VIEW v_club_budget AS
 SELECT
-    c.club_id,
-    c.name,
-    c.initial_budget,
-    c.current_budget,
-    c.initial_budget - c.current_budget AS total_spent
-FROM CLUB c;
+    club_id,
+    club_name,
+    initial_budget_eur,
+    current_budget_eur,
+    initial_budget_eur - current_budget_eur AS total_spent_eur
+FROM clubs;
 
--- =====================================================
--- VIEW 2. 선수 정보 + 능력치 통합 조회
--- =====================================================
-CREATE VIEW V_PLAYER_INFO AS
+CREATE VIEW v_player_info AS
 SELECT
     p.player_id,
-    p.name          AS player_name,
-    p.position,
+    p.player_name,
     p.nationality,
-    c.name          AS club_name,
-    ps.attack,
-    ps.defense,
-    ps.stamina,
-    ps.speed,
+    p.position_group,
+    p.primary_position,
+    p.squad_role,
+    c.club_name,
+    p.market_value_eur,
+    ps.appearances,
+    ps.goals,
+    ps.assists,
+    ps.pace,
+    ps.shooting,
+    ps.passing,
+    ps.defending,
+    ps.physical,
     ps.overall
-FROM PLAYER p
-LEFT JOIN CLUB         c  ON p.club_id   = c.club_id
-LEFT JOIN PLAYER_STATS ps ON p.player_id = ps.player_id;
+FROM players p
+LEFT JOIN clubs c ON p.club_id = c.club_id
+LEFT JOIN player_stats ps ON p.player_id = ps.player_id;
 
--- =====================================================
--- VIEW 3. 구단별 스쿼드 점수
--- (선수 overall 평균 80% + 감독 rating 20%)
--- =====================================================
-CREATE VIEW V_SQUAD_SCORE AS
+CREATE VIEW v_squad_score AS
 SELECT
     c.club_id,
-    c.name                                             AS club_name,
-    m.name                                             AS manager_name,
-    m.tactics,
-    ROUND(AVG(ps.overall), 2)                         AS avg_overall,
-    m.rating                                           AS manager_rating,
-    ROUND(AVG(ps.overall) * 0.8 + m.rating * 0.2, 2) AS squad_score
-FROM CLUB c
-JOIN PLAYER       p  ON p.club_id   = c.club_id
-JOIN PLAYER_STATS ps ON p.player_id = ps.player_id
-JOIN MANAGER      m  ON m.club_id   = c.club_id
-GROUP BY c.club_id, c.name, m.name, m.tactics, m.rating;
+    c.club_name,
+    m.manager_name,
+    m.preferred_formation,
+    COUNT(p.player_id) AS player_count,
+    ROUND(AVG(ps.overall), 2) AS avg_player_overall,
+    m.rating AS manager_rating,
+    ROUND(AVG(ps.overall) * 0.85 + m.rating * 0.15, 2) AS squad_score
+FROM clubs c
+JOIN managers m ON c.club_id = m.club_id
+LEFT JOIN players p ON c.club_id = p.club_id AND p.squad_role = 'starter'
+LEFT JOIN player_stats ps ON p.player_id = ps.player_id
+GROUP BY c.club_id, c.club_name, m.manager_name, m.preferred_formation, m.rating;
 
--- =====================================================
--- VIEW 4. 계약 만료 임박 선수 (6개월 이내)
--- =====================================================
-CREATE VIEW V_EXPIRING_CONTRACTS AS
-SELECT
-    p.name                                AS player_name,
-    p.position,
-    c.name                                AS club_name,
-    ct.end_date,
-    DATEDIFF(ct.end_date, CURDATE())      AS days_remaining
-FROM CONTRACT ct
-JOIN PLAYER p ON ct.player_id = p.player_id
-JOIN CLUB   c ON ct.club_id   = c.club_id
-WHERE ct.status = 'active'
-  AND ct.end_date BETWEEN CURDATE() AND DATE_ADD(CURDATE(), INTERVAL 6 MONTH)
-ORDER BY days_remaining;
-
--- =====================================================
--- VIEW 5. 이적시장 매물 조회 (선수 정보 포함)
--- =====================================================
-CREATE VIEW V_TRANSFER_MARKET AS
+CREATE VIEW v_transfer_market AS
 SELECT
     tm.listing_id,
-    p.name          AS player_name,
-    p.position,
+    tm.player_id,
+    p.player_name,
+    p.position_group,
+    p.primary_position,
     p.nationality,
     ps.overall,
-    sc.name         AS seller_club,
-    tm.asking_fee,
+    c.club_name AS seller_club,
+    tm.seller_club_id,
+    tm.asking_fee_eur,
     tm.listed_date,
     tm.status
-FROM TRANSFER_MARKET tm
-JOIN PLAYER       p  ON tm.player_id      = p.player_id
-JOIN PLAYER_STATS ps ON p.player_id       = ps.player_id
-JOIN CLUB         sc ON tm.seller_club_id = sc.club_id
-WHERE tm.status = 'available'
-ORDER BY ps.overall DESC;
+FROM transfer_market tm
+JOIN players p ON tm.player_id = p.player_id
+JOIN player_stats ps ON p.player_id = ps.player_id
+JOIN clubs c ON tm.seller_club_id = c.club_id
+WHERE tm.status = 'available';
 
--- =====================================================
--- TRIGGER 1. 예산 초과 영입 차단
--- =====================================================
+CREATE VIEW v_expiring_contracts AS
+SELECT
+    p.player_id,
+    p.player_name,
+    p.position_group,
+    c.club_name,
+    ct.end_date,
+    DATEDIFF(ct.end_date, CURDATE()) AS days_remaining
+FROM contracts ct
+JOIN players p ON ct.player_id = p.player_id
+JOIN clubs c ON ct.club_id = c.club_id
+WHERE ct.status = 'active'
+  AND ct.end_date IS NOT NULL
+  AND ct.end_date BETWEEN CURDATE() AND DATE_ADD(CURDATE(), INTERVAL 6 MONTH);
+
+CREATE VIEW v_position_depth AS
+SELECT
+    c.club_id,
+    c.club_name,
+    p.position_group,
+    COUNT(*) AS player_count,
+    ROUND(AVG(ps.overall), 2) AS avg_overall
+FROM clubs c
+JOIN players p ON c.club_id = p.club_id
+JOIN player_stats ps ON p.player_id = ps.player_id
+GROUP BY c.club_id, c.club_name, p.position_group;
+
+CREATE VIEW v_club_market_value AS
+SELECT
+    c.club_id,
+    c.club_name,
+    COUNT(p.player_id) AS player_count,
+    SUM(p.market_value_eur) AS squad_market_value_eur,
+    ROUND(AVG(p.market_value_eur), 2) AS avg_market_value_eur
+FROM clubs c
+LEFT JOIN players p ON c.club_id = p.club_id
+GROUP BY c.club_id, c.club_name;
+
 DELIMITER $$
-CREATE TRIGGER trg_check_budget
-BEFORE INSERT ON TRANSFER_HISTORY
+CREATE TRIGGER trg_club_budget_before_update
+BEFORE UPDATE ON clubs
 FOR EACH ROW
 BEGIN
-    DECLARE v_budget DECIMAL(15,2);
+    IF NEW.current_budget_eur < 0 THEN
+        SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Current budget cannot be negative';
+    END IF;
+END$$
 
-    IF NEW.to_club_id IS NOT NULL THEN
-        SELECT current_budget INTO v_budget
-        FROM CLUB WHERE club_id = NEW.to_club_id;
+CREATE TRIGGER trg_market_before_insert
+BEFORE INSERT ON transfer_market
+FOR EACH ROW
+BEGIN
+    DECLARE v_current_club_id INT;
+    SELECT club_id INTO v_current_club_id FROM players WHERE player_id = NEW.player_id;
 
-        IF v_budget < NEW.fee THEN
-            SIGNAL SQLSTATE '45000'
-            SET MESSAGE_TEXT = '예산 초과로 인해 영입이 불가능합니다.';
-        END IF;
+    IF v_current_club_id IS NULL THEN
+        SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Released players cannot be listed by a club';
+    END IF;
+
+    IF v_current_club_id <> NEW.seller_club_id THEN
+        SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Seller club must match current player club';
+    END IF;
+
+    IF NEW.status = 'available'
+       AND EXISTS (
+           SELECT 1 FROM transfer_market
+           WHERE player_id = NEW.player_id AND status = 'available'
+       ) THEN
+        SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Player already has an available listing';
+    END IF;
+END$$
+
+CREATE TRIGGER trg_market_before_update
+BEFORE UPDATE ON transfer_market
+FOR EACH ROW
+BEGIN
+    IF NEW.status = 'available'
+       AND EXISTS (
+           SELECT 1 FROM transfer_market
+           WHERE player_id = NEW.player_id
+             AND status = 'available'
+             AND listing_id <> NEW.listing_id
+       ) THEN
+        SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Player already has an available listing';
     END IF;
 END$$
 DELIMITER ;
-
--- =====================================================
--- TRIGGER 2. 자기 팀 이적 차단
--- =====================================================
-DELIMITER $$
-CREATE TRIGGER trg_check_same_club
-BEFORE INSERT ON TRANSFER_HISTORY
-FOR EACH ROW
-BEGIN
-    IF NEW.from_club_id IS NOT NULL AND NEW.to_club_id IS NOT NULL THEN
-        IF NEW.from_club_id = NEW.to_club_id THEN
-            SIGNAL SQLSTATE '45000'
-            SET MESSAGE_TEXT = '동일 구단 간 이적은 불가능합니다.';
-        END IF;
-    END IF;
-END$$
-DELIMITER ;
-
--- =====================================================
--- TRIGGER 3. 매물 중복 등록 차단
--- =====================================================
-DELIMITER $$
-CREATE TRIGGER trg_check_duplicate_listing
-BEFORE INSERT ON TRANSFER_MARKET
-FOR EACH ROW
-BEGIN
-    DECLARE v_count INT;
-
-    SELECT COUNT(*) INTO v_count
-    FROM TRANSFER_MARKET
-    WHERE player_id = NEW.player_id
-      AND status = 'available';
-
-    IF v_count > 0 THEN
-        SIGNAL SQLSTATE '45000'
-        SET MESSAGE_TEXT = '이미 이적시장에 등록된 선수입니다.';
-    END IF;
-END$$
-DELIMITER ;
-
--- =====================================================
--- TRIGGER 4. 판매 구단과 선수 소속 구단 일치 확인
--- =====================================================
-DELIMITER $$
-CREATE TRIGGER trg_check_seller_club
-BEFORE INSERT ON TRANSFER_MARKET
-FOR EACH ROW
-BEGIN
-    DECLARE v_club_id INT;
-
-    SELECT club_id INTO v_club_id
-    FROM PLAYER
-    WHERE player_id = NEW.player_id;
-
-    IF v_club_id IS NULL OR v_club_id <> NEW.seller_club_id THEN
-        SIGNAL SQLSTATE '45000'
-        SET MESSAGE_TEXT = '선수의 현재 소속 구단과 판매 구단이 일치하지 않습니다.';
-    END IF;
-END$$
-DELIMITER ;
-
--- =====================================================
--- FUNCTION. 구단 스쿼드 점수 계산
--- =====================================================
-DELIMITER $$
-CREATE FUNCTION fn_squad_score(p_club_id INT)
-RETURNS DECIMAL(6,2)
-DETERMINISTIC
-READS SQL DATA
-BEGIN
-    DECLARE v_avg_overall    DECIMAL(6,2) DEFAULT 0;
-    DECLARE v_manager_rating INT          DEFAULT 0;
-    DECLARE v_score          DECIMAL(6,2) DEFAULT 0;
-
-    SELECT ROUND(AVG(ps.overall), 2) INTO v_avg_overall
-    FROM PLAYER p
-    JOIN PLAYER_STATS ps ON p.player_id = ps.player_id
-    WHERE p.club_id = p_club_id;
-
-    SELECT rating INTO v_manager_rating
-    FROM MANAGER
-    WHERE club_id = p_club_id;
-
-    SET v_score = ROUND(v_avg_overall * 0.8 + v_manager_rating * 0.2, 2);
-
-    RETURN v_score;
-END$$
-DELIMITER ;
-

@@ -1,0 +1,13 @@
+club_id,source_team_id,club_name,city,founded_year,stadium_name,stadium_capacity,initial_budget_eur,current_budget_eur,club_homepage,data_source_url
+1,K09,FC Seoul,Seoul,1983,Seoul World Cup Stadium,66704,16400000,16400000,https://www.fcseoul.com/,https://www.kleague.com/club/club.do?teamId=K09
+2,K01,Ulsan HD FC,Ulsan,1983,Ulsan Munsu Football Stadium,44102,18800000,18800000,https://www.uhdfc.com/fc/greetings.php,https://www.kleague.com/club/club.do?teamId=K01
+3,K05,Jeonbuk Hyundai Motors,Jeonju,1994,Jeonju World Cup Stadium,42477,18000000,18000000,https://www.hyundai-motorsfc.com,https://www.kleague.com/club/club.do?teamId=K05
+4,K21,Gangwon FC,Gangneung,2008,Gangneung High1 Arena,22333,13000000,13000000,https://www.gangwon-fc.com,https://www.kleague.com/club/club.do?teamId=K21
+5,K03,Pohang Steelers,Pohang,1973,Pohang Steel Yard,17443,11200000,11200000,https://www.steelers.co.kr,https://www.kleague.com/club/club.do?teamId=K03
+6,K18,Incheon United,Incheon,2003,Incheon Football Stadium,20891,9100000,9100000,https://www.incheonutd.com,https://www.kleague.com/club/club.do?teamId=K18
+7,K27,FC Anyang,Anyang,2013,Anyang Sports Complex,17143,8700000,8700000,https://www.fc-anyang.com,https://www.kleague.com/club/club.do?teamId=K27
+8,K04,Jeju SK,Seogwipo,1982,Jeju World Cup Stadium,29791,12200000,12200000,https://www.jejuskfc.com/,https://www.kleague.com/club/club.do?teamId=K04
+9,K26,Bucheon FC 1995,Bucheon,2007,Bucheon Stadium,34456,8000000,8000000,https://www.bfc1995.com,https://www.kleague.com/club/club.do?teamId=K26
+10,K10,Daejeon Hana Citizen,Daejeon,1997,Daejeon World Cup Stadium,40903,16900000,16900000,https://www.dhcfc.kr/,https://www.kleague.com/club/club.do?teamId=K10
+11,K35,Gimcheon Sangmu,Gimcheon,2021,Gimcheon Sports Complex,25000,11000000,11000000,https://gimcheonfc.com/,https://www.kleague.com/club/club.do?teamId=K35
+12,K22,Gwangju FC,Gwangju,2010,Gwangju World Cup Stadium,40245,6000000,6000000,https://www.gwangjufc.com/,https://www.kleague.com/club/club.do?teamId=K22
