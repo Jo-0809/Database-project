@@ -12,3 +12,7 @@ erDiagram
     CLUBS ||--o{ TRANSFER_HISTORY : to_club
     CLUBS ||--o{ SQUAD_BATTLES : home
     CLUBS ||--o{ SQUAD_BATTLES : away
+    SEASONS ||--o{ TRANSFER_HISTORY : groups
+    SEASONS ||--o{ SQUAD_BATTLES : groups
+    CLUBS ||--o{ SEASONS : champion
+    APP_USERS ||--o{ AUDIT_LOGS : changed_by

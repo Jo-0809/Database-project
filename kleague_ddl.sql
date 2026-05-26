@@ -14,6 +14,8 @@ CREATE TABLE data_sources (
 CREATE TABLE clubs (
     club_id INT NOT NULL,
     source_team_id VARCHAR(10) NOT NULL UNIQUE,
+    league_id TINYINT NOT NULL,
+    league_name VARCHAR(20) NOT NULL,
     club_name VARCHAR(100) NOT NULL UNIQUE,
     city VARCHAR(80) NOT NULL,
     founded_year SMALLINT NOT NULL,
@@ -37,7 +39,7 @@ CREATE TABLE managers (
     nationality VARCHAR(80) NOT NULL,
     preferred_formation VARCHAR(20) NOT NULL,
     rating TINYINT NOT NULL,
-    rating_source VARCHAR(40) NOT NULL DEFAULT 'SIMULATION_RULE',
+    rating_source VARCHAR(80) NOT NULL DEFAULT 'SIMULATION_RULE',
     PRIMARY KEY (manager_id),
     CONSTRAINT fk_managers_club FOREIGN KEY (club_id) REFERENCES clubs(club_id),
     CONSTRAINT chk_manager_rating CHECK (rating BETWEEN 1 AND 99)
@@ -90,7 +92,7 @@ CREATE TABLE player_stats (
     physical TINYINT NOT NULL,
     overall DECIMAL(5,2) GENERATED ALWAYS AS
         (ROUND((pace + shooting + passing + defending + physical) / 5, 2)) STORED,
-    rating_source VARCHAR(40) NOT NULL DEFAULT 'DERIVED_PUBLIC_DATA',
+    rating_source VARCHAR(80) NOT NULL DEFAULT 'DERIVED_PUBLIC_DATA',
     PRIMARY KEY (player_id),
     CONSTRAINT fk_stats_player FOREIGN KEY (player_id) REFERENCES players(player_id),
     CONSTRAINT chk_stats_nonnegative CHECK (
@@ -129,8 +131,22 @@ CREATE TABLE app_users (
     CONSTRAINT fk_users_club FOREIGN KEY (club_id) REFERENCES clubs(club_id)
 ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
+CREATE TABLE seasons (
+    season_id INT NOT NULL AUTO_INCREMENT,
+    season_name VARCHAR(20) NOT NULL UNIQUE,
+    start_date DATE NOT NULL,
+    end_date DATE NULL,
+    status ENUM('active','ended') NOT NULL DEFAULT 'active',
+    active_season_key TINYINT GENERATED ALWAYS AS (CASE WHEN status = 'active' THEN 1 ELSE NULL END) STORED,
+    champion_club_id INT NULL,
+    PRIMARY KEY (season_id),
+    CONSTRAINT fk_seasons_champion FOREIGN KEY (champion_club_id) REFERENCES clubs(club_id),
+    UNIQUE KEY uq_one_active_season (active_season_key),
+    INDEX idx_seasons_status (status)
+) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+
 CREATE TABLE transfer_market (
-    listing_id INT NOT NULL,
+    listing_id INT NOT NULL AUTO_INCREMENT,
     player_id INT NOT NULL,
     seller_club_id INT NOT NULL,
     asking_fee_eur DECIMAL(15,2) NOT NULL,
@@ -152,17 +168,20 @@ CREATE TABLE transfer_history (
     transfer_type ENUM('buy','sell','release','free_agent','loan') NOT NULL,
     fee_eur DECIMAL(15,2) NOT NULL DEFAULT 0,
     transfer_date DATE NOT NULL,
+    season_id INT NULL,
     created_by_user_id INT NULL,
     memo VARCHAR(500),
     PRIMARY KEY (transfer_id),
     CONSTRAINT fk_history_player FOREIGN KEY (player_id) REFERENCES players(player_id),
     CONSTRAINT fk_history_from_club FOREIGN KEY (from_club_id) REFERENCES clubs(club_id),
     CONSTRAINT fk_history_to_club FOREIGN KEY (to_club_id) REFERENCES clubs(club_id),
+    CONSTRAINT fk_history_season FOREIGN KEY (season_id) REFERENCES seasons(season_id),
     CONSTRAINT fk_history_user FOREIGN KEY (created_by_user_id) REFERENCES app_users(user_id),
     CONSTRAINT chk_history_fee CHECK (fee_eur >= 0),
     CONSTRAINT chk_history_has_side CHECK (from_club_id IS NOT NULL OR to_club_id IS NOT NULL),
     CONSTRAINT chk_history_diff_club CHECK (from_club_id IS NULL OR to_club_id IS NULL OR from_club_id <> to_club_id),
     INDEX idx_history_date (transfer_date),
+    INDEX idx_history_season (season_id),
     INDEX idx_history_player (player_id)
 ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
@@ -174,16 +193,36 @@ CREATE TABLE squad_battles (
     away_score DECIMAL(6,2) NOT NULL,
     result ENUM('home','away','draw') NOT NULL,
     battle_date DATE NOT NULL,
+    season_id INT NULL,
     PRIMARY KEY (battle_id),
     CONSTRAINT fk_battle_home FOREIGN KEY (home_club_id) REFERENCES clubs(club_id),
     CONSTRAINT fk_battle_away FOREIGN KEY (away_club_id) REFERENCES clubs(club_id),
+    CONSTRAINT fk_battle_season FOREIGN KEY (season_id) REFERENCES seasons(season_id),
     CONSTRAINT chk_battle_diff_club CHECK (home_club_id <> away_club_id),
+    INDEX idx_battle_season (season_id),
     INDEX idx_battle_date (battle_date)
+) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+
+CREATE TABLE audit_logs (
+    audit_id INT NOT NULL AUTO_INCREMENT,
+    table_name VARCHAR(30) NOT NULL,
+    action_type ENUM('INSERT','UPDATE','DELETE') NOT NULL,
+    record_id INT NULL,
+    old_value TEXT NULL,
+    new_value TEXT NULL,
+    changed_by_user_id INT NULL,
+    changed_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    note VARCHAR(255) NULL,
+    PRIMARY KEY (audit_id),
+    CONSTRAINT fk_audit_user FOREIGN KEY (changed_by_user_id) REFERENCES app_users(user_id),
+    INDEX idx_audit_table_time (table_name, changed_at),
+    INDEX idx_audit_user_time (changed_by_user_id, changed_at)
 ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
 CREATE VIEW v_club_budget AS
 SELECT
     club_id,
+    league_name,
     club_name,
     initial_budget_eur,
     current_budget_eur,
@@ -197,6 +236,7 @@ SELECT
     p.nationality,
     p.position_group,
     p.primary_position,
+    c.league_name,
     c.club_name,
     p.market_value_eur,
     ps.appearances,
@@ -216,17 +256,45 @@ CREATE VIEW v_squad_score AS
 SELECT
     c.club_id,
     c.club_name,
+    c.league_name,
     m.manager_name,
     m.preferred_formation,
-    COUNT(p.player_id) AS player_count,
-    ROUND(AVG(ps.overall), 2) AS avg_player_overall,
+    COUNT(r.player_id) AS player_count,
+    ROUND(AVG(r.overall), 2) AS avg_player_overall,
+    ROUND(AVG(CASE WHEN r.squad_rank <= 11 THEN r.overall END), 2) AS starting11_avg,
+    ROUND(COALESCE(AVG(CASE WHEN r.squad_rank BETWEEN 12 AND 18 THEN r.overall END), 0), 2) AS bench_avg,
+    SUM(CASE WHEN r.squad_rank BETWEEN 12 AND 18 THEN 1 ELSE 0 END) AS bench_count,
     m.rating AS manager_rating,
-    ROUND(AVG(ps.overall) * 0.85 + m.rating * 0.15, 2) AS squad_score
+    ROUND(
+        CASE
+            WHEN COUNT(r.player_id) < 11 THEN 0
+            ELSE
+                COALESCE(AVG(CASE WHEN r.squad_rank <= 11 THEN r.overall END), 0) * 0.82
+                + m.rating * 0.14
+                + CASE
+                    WHEN SUM(CASE WHEN r.squad_rank BETWEEN 12 AND 18 THEN 1 ELSE 0 END) > 0
+                    THEN COALESCE(AVG(CASE WHEN r.squad_rank BETWEEN 12 AND 18 THEN r.overall END), 0) * 0.02
+                    ELSE 0
+                  END
+        END,
+        2
+    ) AS squad_score
 FROM clubs c
 JOIN managers m ON c.club_id = m.club_id
-LEFT JOIN players p ON c.club_id = p.club_id
-LEFT JOIN player_stats ps ON p.player_id = ps.player_id
-GROUP BY c.club_id, c.club_name, m.manager_name, m.preferred_formation, m.rating;
+LEFT JOIN (
+    SELECT
+        p.player_id,
+        p.club_id,
+        ps.overall,
+        ROW_NUMBER() OVER (
+            PARTITION BY p.club_id
+            ORDER BY ps.overall DESC, p.player_id ASC
+        ) AS squad_rank
+    FROM players p
+    JOIN player_stats ps ON p.player_id = ps.player_id
+    WHERE p.club_id IS NOT NULL
+) r ON c.club_id = r.club_id
+GROUP BY c.club_id, c.club_name, c.league_name, m.manager_name, m.preferred_formation, m.rating;
 
 CREATE VIEW v_transfer_market AS
 SELECT
@@ -238,6 +306,7 @@ SELECT
     p.nationality,
     ps.overall,
     c.club_name AS seller_club,
+    c.league_name AS seller_league,
     tm.seller_club_id,
     tm.asking_fee_eur,
     tm.listed_date,
@@ -267,24 +336,207 @@ CREATE VIEW v_position_depth AS
 SELECT
     c.club_id,
     c.club_name,
+    c.league_name,
     p.position_group,
     COUNT(*) AS player_count,
     ROUND(AVG(ps.overall), 2) AS avg_overall
 FROM clubs c
 JOIN players p ON c.club_id = p.club_id
 JOIN player_stats ps ON p.player_id = ps.player_id
-GROUP BY c.club_id, c.club_name, p.position_group;
+GROUP BY c.club_id, c.club_name, c.league_name, p.position_group;
 
 CREATE VIEW v_club_market_value AS
 SELECT
     c.club_id,
     c.club_name,
+    c.league_name,
     COUNT(p.player_id) AS player_count,
     SUM(p.market_value_eur) AS squad_market_value_eur,
     ROUND(AVG(p.market_value_eur), 2) AS avg_market_value_eur
 FROM clubs c
 LEFT JOIN players p ON c.club_id = p.club_id
-GROUP BY c.club_id, c.club_name;
+GROUP BY c.club_id, c.club_name, c.league_name;
+
+CREATE VIEW v_club_position_gap AS
+SELECT
+    c.club_id,
+    c.club_name,
+    c.league_id,
+    c.league_name,
+    pg.position_group,
+    COUNT(p.player_id) AS player_count,
+    ROUND(AVG(ps.overall), 2) AS avg_overall,
+    la.league_avg_overall,
+    ROUND(
+        CASE
+            WHEN COUNT(p.player_id) = 0 THEN la.league_avg_overall
+            ELSE la.league_avg_overall - AVG(ps.overall)
+        END,
+        2
+    ) AS weakness_gap,
+    CASE
+        WHEN COUNT(p.player_id) = 0 THEN 'urgent'
+        WHEN AVG(ps.overall) < la.league_avg_overall - 4 THEN 'weak'
+        WHEN AVG(ps.overall) > la.league_avg_overall + 4 THEN 'strong'
+        ELSE 'stable'
+    END AS need_level
+FROM clubs c
+CROSS JOIN (
+    SELECT 'GK' AS position_group
+    UNION ALL SELECT 'DF'
+    UNION ALL SELECT 'MF'
+    UNION ALL SELECT 'FW'
+) pg
+JOIN (
+    SELECT c.league_id, p.position_group, ROUND(AVG(ps.overall), 2) AS league_avg_overall
+    FROM players p
+    JOIN clubs c ON p.club_id = c.club_id
+    JOIN player_stats ps ON p.player_id = ps.player_id
+    WHERE p.club_id IS NOT NULL
+    GROUP BY c.league_id, p.position_group
+) la ON la.league_id = c.league_id
+    AND la.position_group = pg.position_group
+LEFT JOIN players p
+    ON p.club_id = c.club_id
+   AND p.position_group = pg.position_group
+LEFT JOIN player_stats ps
+    ON p.player_id = ps.player_id
+GROUP BY c.club_id, c.club_name, c.league_id, c.league_name, pg.position_group, la.league_avg_overall;
+
+CREATE VIEW v_transfer_recommendations AS
+SELECT
+    buyer.club_id AS buyer_club_id,
+    buyer.club_name AS buyer_club,
+    buyer.league_name AS buyer_league,
+    tm.listing_id,
+    tm.player_id,
+    p.player_name,
+    p.position_group,
+    p.primary_position,
+    p.age,
+    p.nationality,
+    ps.overall,
+    seller.club_name AS seller_club,
+    seller.league_name AS seller_league,
+    tm.asking_fee_eur,
+    buyer.current_budget_eur,
+    gap.player_count AS current_position_players,
+    gap.avg_overall AS current_position_avg,
+    gap.league_avg_overall,
+    gap.weakness_gap,
+    gap.need_level,
+    ROUND(
+        ps.overall * 0.45
+        + LEAST(GREATEST(gap.weakness_gap, 0), 12) * 2.8
+        + CASE
+            WHEN tm.asking_fee_eur <= buyer.current_budget_eur THEN 12
+            ELSE -80
+          END
+        + CASE
+            WHEN tm.asking_fee_eur = 0 THEN 10
+            ELSE LEAST(p.market_value_eur / tm.asking_fee_eur, 1.8) * 8
+          END
+        + CASE
+            WHEN p.age IS NULL THEN 0
+            WHEN p.age <= 23 THEN 6
+            WHEN p.age >= 34 THEN -5
+            ELSE 0
+          END,
+        2
+    ) AS recommendation_score,
+    CASE
+        WHEN tm.asking_fee_eur > buyer.current_budget_eur THEN '예산 초과'
+        WHEN gap.need_level IN ('urgent','weak') THEN '약점 보강'
+        WHEN p.age <= 23 THEN '성장 가치'
+        ELSE '전력 보강'
+    END AS recommendation_reason
+FROM clubs buyer
+JOIN v_club_position_gap gap
+    ON buyer.club_id = gap.club_id
+JOIN transfer_market tm
+    ON tm.status = 'available'
+JOIN players p
+    ON tm.player_id = p.player_id
+   AND p.position_group = gap.position_group
+JOIN player_stats ps
+    ON p.player_id = ps.player_id
+JOIN clubs seller
+    ON tm.seller_club_id = seller.club_id
+WHERE buyer.club_id <> tm.seller_club_id;
+
+CREATE VIEW v_season_standings AS
+SELECT
+    c.club_id,
+    c.club_name,
+    s.season_id,
+    s.season_name,
+    COUNT(sb.battle_id) AS played,
+    SUM(CASE
+        WHEN (sb.home_club_id = c.club_id AND sb.result = 'home')
+          OR (sb.away_club_id = c.club_id AND sb.result = 'away') THEN 1 ELSE 0 END) AS wins,
+    SUM(CASE
+        WHEN sb.result = 'draw'
+         AND (sb.home_club_id = c.club_id OR sb.away_club_id = c.club_id) THEN 1 ELSE 0 END) AS draws,
+    SUM(CASE
+        WHEN (sb.home_club_id = c.club_id AND sb.result = 'away')
+          OR (sb.away_club_id = c.club_id AND sb.result = 'home') THEN 1 ELSE 0 END) AS losses,
+    SUM(CASE
+        WHEN (sb.home_club_id = c.club_id AND sb.result = 'home')
+          OR (sb.away_club_id = c.club_id AND sb.result = 'away') THEN 3
+        WHEN sb.result = 'draw'
+         AND (sb.home_club_id = c.club_id OR sb.away_club_id = c.club_id) THEN 1
+        ELSE 0 END) AS points
+FROM clubs c
+JOIN seasons s
+    ON s.status = 'active'
+LEFT JOIN squad_battles sb
+    ON (sb.home_club_id = c.club_id OR sb.away_club_id = c.club_id)
+   AND sb.season_id = s.season_id
+GROUP BY c.club_id, c.club_name, s.season_id, s.season_name;
+
+CREATE VIEW v_season_top_transfers AS
+SELECT
+    s.season_name,
+    p.player_name,
+    fc.club_name AS from_club,
+    tc.club_name AS to_club,
+    th.fee_eur,
+    th.transfer_date,
+    RANK() OVER (PARTITION BY th.season_id ORDER BY th.fee_eur DESC) AS fee_rank
+FROM transfer_history th
+JOIN seasons s ON th.season_id = s.season_id
+JOIN players p ON th.player_id = p.player_id
+LEFT JOIN clubs fc ON th.from_club_id = fc.club_id
+LEFT JOIN clubs tc ON th.to_club_id = tc.club_id
+WHERE th.transfer_type = 'buy'
+  AND th.fee_eur > 0;
+
+CREATE VIEW v_champion_history AS
+SELECT
+    s.season_id,
+    s.season_name,
+    s.start_date,
+    s.end_date,
+    c.club_name AS champion_club
+FROM seasons s
+LEFT JOIN clubs c ON s.champion_club_id = c.club_id
+WHERE s.status = 'ended'
+ORDER BY s.end_date DESC;
+
+CREATE VIEW v_audit_recent AS
+SELECT
+    al.audit_id,
+    al.changed_at,
+    IFNULL(u.username, '(system)') AS changed_by,
+    al.table_name,
+    al.action_type,
+    al.record_id,
+    al.note,
+    al.old_value,
+    al.new_value
+FROM audit_logs al
+LEFT JOIN app_users u ON al.changed_by_user_id = u.user_id
+ORDER BY al.changed_at DESC, al.audit_id DESC;
 
 DELIMITER $$
 CREATE TRIGGER trg_club_budget_before_update
@@ -332,6 +584,100 @@ BEGIN
              AND listing_id <> NEW.listing_id
        ) THEN
         SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Player already has an available listing';
+    END IF;
+END$$
+
+CREATE TRIGGER trg_audit_players_update
+AFTER UPDATE ON players
+FOR EACH ROW
+BEGIN
+    IF @app_user_id IS NOT NULL AND NOT (OLD.club_id <=> NEW.club_id) THEN
+        INSERT INTO audit_logs
+            (table_name, action_type, record_id, old_value, new_value, changed_by_user_id, note)
+        VALUES
+            ('players', 'UPDATE', NEW.player_id,
+             CONCAT('club_id=', IFNULL(OLD.club_id, 'NULL')),
+             CONCAT('club_id=', IFNULL(NEW.club_id, 'NULL')),
+             @app_user_id,
+             CONCAT(NEW.player_name, ' club changed'));
+    END IF;
+END$$
+
+CREATE TRIGGER trg_audit_clubs_update
+AFTER UPDATE ON clubs
+FOR EACH ROW
+BEGIN
+    IF @app_user_id IS NOT NULL AND OLD.current_budget_eur <> NEW.current_budget_eur THEN
+        INSERT INTO audit_logs
+            (table_name, action_type, record_id, old_value, new_value, changed_by_user_id, note)
+        VALUES
+            ('clubs', 'UPDATE', NEW.club_id,
+             CONCAT('current_budget_eur=', OLD.current_budget_eur),
+             CONCAT('current_budget_eur=', NEW.current_budget_eur),
+             @app_user_id,
+             CONCAT(NEW.club_name, ' budget changed'));
+    END IF;
+END$$
+
+CREATE TRIGGER trg_audit_contracts_insert
+AFTER INSERT ON contracts
+FOR EACH ROW
+BEGIN
+    IF @app_user_id IS NOT NULL THEN
+        INSERT INTO audit_logs
+            (table_name, action_type, record_id, new_value, changed_by_user_id, note)
+        VALUES
+            ('contracts', 'INSERT', NEW.contract_id,
+             CONCAT('player_id=', NEW.player_id, ', club_id=', NEW.club_id, ', salary_eur=', NEW.salary_eur),
+             @app_user_id,
+             'New contract created');
+    END IF;
+END$$
+
+CREATE TRIGGER trg_audit_contracts_update
+AFTER UPDATE ON contracts
+FOR EACH ROW
+BEGIN
+    IF @app_user_id IS NOT NULL AND OLD.status <> NEW.status THEN
+        INSERT INTO audit_logs
+            (table_name, action_type, record_id, old_value, new_value, changed_by_user_id, note)
+        VALUES
+            ('contracts', 'UPDATE', NEW.contract_id,
+             CONCAT('status=', OLD.status),
+             CONCAT('status=', NEW.status),
+             @app_user_id,
+             'Contract status changed');
+    END IF;
+END$$
+
+CREATE TRIGGER trg_audit_market_insert
+AFTER INSERT ON transfer_market
+FOR EACH ROW
+BEGIN
+    IF @app_user_id IS NOT NULL THEN
+        INSERT INTO audit_logs
+            (table_name, action_type, record_id, new_value, changed_by_user_id, note)
+        VALUES
+            ('transfer_market', 'INSERT', NEW.listing_id,
+             CONCAT('player_id=', NEW.player_id, ', asking_fee_eur=', NEW.asking_fee_eur),
+             @app_user_id,
+             'Transfer listing created');
+    END IF;
+END$$
+
+CREATE TRIGGER trg_audit_market_update
+AFTER UPDATE ON transfer_market
+FOR EACH ROW
+BEGIN
+    IF @app_user_id IS NOT NULL AND OLD.status <> NEW.status THEN
+        INSERT INTO audit_logs
+            (table_name, action_type, record_id, old_value, new_value, changed_by_user_id, note)
+        VALUES
+            ('transfer_market', 'UPDATE', NEW.listing_id,
+             CONCAT('status=', OLD.status),
+             CONCAT('status=', NEW.status),
+             @app_user_id,
+             'Transfer listing status changed');
     END IF;
 END$$
 DELIMITER ;
