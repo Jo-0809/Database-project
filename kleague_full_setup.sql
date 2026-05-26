@@ -1,4 +1,4 @@
-DROP DATABASE IF EXISTS kleague_db;
+﻿DROP DATABASE IF EXISTS kleague_db;
 CREATE DATABASE kleague_db
   DEFAULT CHARACTER SET utf8mb4
   DEFAULT COLLATE utf8mb4_unicode_ci;
@@ -21,15 +21,16 @@ CREATE TABLE clubs (
     founded_year SMALLINT NOT NULL,
     stadium_name VARCHAR(120) NOT NULL,
     stadium_capacity INT NOT NULL,
-    initial_budget_eur DECIMAL(15,2) NOT NULL,
-    current_budget_eur DECIMAL(15,2) NOT NULL,
-    total_spent_eur DECIMAL(15,2) DEFAULT 0,
+    initial_budget_krw DECIMAL(15,2) NOT NULL,
+    current_budget_krw DECIMAL(15,2) NOT NULL,
+    total_spent_krw DECIMAL(15,2) DEFAULT 0,
     club_homepage VARCHAR(255),
     data_source_url VARCHAR(500),
     PRIMARY KEY (club_id),
     CONSTRAINT chk_club_capacity CHECK (stadium_capacity > 0),
-    CONSTRAINT chk_club_initial_budget CHECK (initial_budget_eur >= 0),
-    CONSTRAINT chk_club_current_budget CHECK (current_budget_eur >= 0)
+    CONSTRAINT chk_club_initial_budget CHECK (initial_budget_krw >= 0),
+    CONSTRAINT chk_club_current_budget CHECK (current_budget_krw >= 0),
+    CONSTRAINT chk_club_total_spent CHECK (total_spent_krw >= 0)
 ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
 CREATE TABLE managers (
@@ -60,7 +61,7 @@ CREATE TABLE players (
     height_cm SMALLINT NULL,
     weight_kg SMALLINT NULL,
     preferred_foot VARCHAR(20) NOT NULL DEFAULT 'Unknown',
-    market_value_eur DECIMAL(15,2) NOT NULL DEFAULT 0,
+    market_value_krw DECIMAL(15,2) NOT NULL DEFAULT 0,
     contract_until DATE NULL,
     joined_date DATE NULL,
     profile_source_url VARCHAR(500),
@@ -70,9 +71,9 @@ CREATE TABLE players (
     CONSTRAINT chk_player_age CHECK (age IS NULL OR age BETWEEN 14 AND 60),
     CONSTRAINT chk_player_height CHECK (height_cm IS NULL OR height_cm BETWEEN 140 AND 220),
     CONSTRAINT chk_player_weight CHECK (weight_kg IS NULL OR weight_kg BETWEEN 40 AND 150),
-    CONSTRAINT chk_player_market_value CHECK (market_value_eur >= 0),
+    CONSTRAINT chk_player_market_value CHECK (market_value_krw >= 0),
     INDEX idx_players_club_position (club_id, position_group),
-    INDEX idx_players_market_value (market_value_eur),
+    INDEX idx_players_market_value (market_value_krw),
     INDEX idx_players_name (player_name)
 ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
@@ -112,12 +113,12 @@ CREATE TABLE contracts (
     club_id INT NOT NULL,
     start_date DATE NULL,
     end_date DATE NULL,
-    salary_eur DECIMAL(15,2) NOT NULL DEFAULT 0,
+    salary_krw DECIMAL(15,2) NOT NULL DEFAULT 0,
     status ENUM('active','expired','released') NOT NULL DEFAULT 'active',
     PRIMARY KEY (contract_id),
     CONSTRAINT fk_contracts_player FOREIGN KEY (player_id) REFERENCES players(player_id),
     CONSTRAINT fk_contracts_club FOREIGN KEY (club_id) REFERENCES clubs(club_id),
-    CONSTRAINT chk_contract_salary CHECK (salary_eur >= 0),
+    CONSTRAINT chk_contract_salary CHECK (salary_krw >= 0),
     CONSTRAINT chk_contract_dates CHECK (end_date IS NULL OR start_date IS NULL OR end_date > start_date),
     INDEX idx_contracts_player_status (player_id, status),
     INDEX idx_contracts_club_status (club_id, status)
@@ -149,14 +150,14 @@ CREATE TABLE transfer_market (
     listing_id INT NOT NULL AUTO_INCREMENT,
     player_id INT NOT NULL,
     seller_club_id INT NOT NULL,
-    asking_fee_eur DECIMAL(15,2) NOT NULL,
+    asking_fee_krw DECIMAL(15,2) NOT NULL,
     listed_date DATE NOT NULL,
-    status ENUM('available','sold','cancelled') NOT NULL DEFAULT 'available',
+    status ENUM('listed','sold','cancelled') NOT NULL DEFAULT 'listed',
     PRIMARY KEY (listing_id),
     CONSTRAINT fk_market_player FOREIGN KEY (player_id) REFERENCES players(player_id),
     CONSTRAINT fk_market_seller FOREIGN KEY (seller_club_id) REFERENCES clubs(club_id),
-    CONSTRAINT chk_market_fee CHECK (asking_fee_eur >= 0),
-    INDEX idx_market_status_fee (status, asking_fee_eur),
+    CONSTRAINT chk_market_fee CHECK (asking_fee_krw > 0),
+    INDEX idx_market_status_fee (status, asking_fee_krw),
     INDEX idx_market_player_status (player_id, status)
 ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
@@ -166,7 +167,7 @@ CREATE TABLE transfer_history (
     from_club_id INT NULL,
     to_club_id INT NULL,
     transfer_type ENUM('buy','sell','release','free_agent','loan') NOT NULL,
-    fee_eur DECIMAL(15,2) NOT NULL DEFAULT 0,
+    fee_krw DECIMAL(15,2) NOT NULL,
     transfer_date DATE NOT NULL,
     season_id INT NULL,
     created_by_user_id INT NULL,
@@ -177,7 +178,7 @@ CREATE TABLE transfer_history (
     CONSTRAINT fk_history_to_club FOREIGN KEY (to_club_id) REFERENCES clubs(club_id),
     CONSTRAINT fk_history_season FOREIGN KEY (season_id) REFERENCES seasons(season_id),
     CONSTRAINT fk_history_user FOREIGN KEY (created_by_user_id) REFERENCES app_users(user_id),
-    CONSTRAINT chk_history_fee CHECK (fee_eur >= 0),
+    CONSTRAINT chk_history_fee CHECK (fee_krw > 0),
     CONSTRAINT chk_history_has_side CHECK (from_club_id IS NOT NULL OR to_club_id IS NOT NULL),
     CONSTRAINT chk_history_diff_club CHECK (from_club_id IS NULL OR to_club_id IS NULL OR from_club_id <> to_club_id),
     INDEX idx_history_date (transfer_date),
@@ -224,9 +225,9 @@ SELECT
     club_id,
     league_name,
     club_name,
-    initial_budget_eur,
-    current_budget_eur,
-    initial_budget_eur - current_budget_eur AS total_spent_eur
+    initial_budget_krw,
+    current_budget_krw,
+    total_spent_krw
 FROM clubs;
 
 CREATE VIEW v_player_info AS
@@ -238,7 +239,7 @@ SELECT
     p.primary_position,
     c.league_name,
     c.club_name,
-    p.market_value_eur,
+    p.market_value_krw,
     ps.appearances,
     ps.goals,
     ps.assists,
@@ -308,14 +309,14 @@ SELECT
     c.club_name AS seller_club,
     c.league_name AS seller_league,
     tm.seller_club_id,
-    tm.asking_fee_eur,
+    tm.asking_fee_krw,
     tm.listed_date,
     tm.status
 FROM transfer_market tm
 JOIN players p ON tm.player_id = p.player_id
 JOIN player_stats ps ON p.player_id = ps.player_id
 JOIN clubs c ON tm.seller_club_id = c.club_id
-WHERE tm.status = 'available';
+WHERE tm.status = 'listed';
 
 CREATE VIEW v_expiring_contracts AS
 SELECT
@@ -351,8 +352,8 @@ SELECT
     c.club_name,
     c.league_name,
     COUNT(p.player_id) AS player_count,
-    SUM(p.market_value_eur) AS squad_market_value_eur,
-    ROUND(AVG(p.market_value_eur), 2) AS avg_market_value_eur
+    SUM(p.market_value_krw) AS squad_market_value_krw,
+    ROUND(AVG(p.market_value_krw), 2) AS avg_market_value_krw
 FROM clubs c
 LEFT JOIN players p ON c.club_id = p.club_id
 GROUP BY c.club_id, c.club_name, c.league_name;
@@ -418,8 +419,8 @@ SELECT
     ps.overall,
     seller.club_name AS seller_club,
     seller.league_name AS seller_league,
-    tm.asking_fee_eur,
-    buyer.current_budget_eur,
+    tm.asking_fee_krw,
+    buyer.current_budget_krw,
     gap.player_count AS current_position_players,
     gap.avg_overall AS current_position_avg,
     gap.league_avg_overall,
@@ -429,12 +430,12 @@ SELECT
         ps.overall * 0.45
         + LEAST(GREATEST(gap.weakness_gap, 0), 12) * 2.8
         + CASE
-            WHEN tm.asking_fee_eur <= buyer.current_budget_eur THEN 12
+            WHEN tm.asking_fee_krw <= buyer.current_budget_krw THEN 12
             ELSE -80
           END
         + CASE
-            WHEN tm.asking_fee_eur = 0 THEN 10
-            ELSE LEAST(p.market_value_eur / tm.asking_fee_eur, 1.8) * 8
+            WHEN tm.asking_fee_krw <= 0 THEN 0
+            ELSE LEAST(p.market_value_krw / tm.asking_fee_krw, 1.8) * 8
           END
         + CASE
             WHEN p.age IS NULL THEN 0
@@ -445,7 +446,7 @@ SELECT
         2
     ) AS recommendation_score,
     CASE
-        WHEN tm.asking_fee_eur > buyer.current_budget_eur THEN '예산 초과'
+        WHEN tm.asking_fee_krw > buyer.current_budget_krw THEN '예산 초과'
         WHEN gap.need_level IN ('urgent','weak') THEN '약점 보강'
         WHEN p.age <= 23 THEN '성장 가치'
         ELSE '전력 보강'
@@ -454,7 +455,7 @@ FROM clubs buyer
 JOIN v_club_position_gap gap
     ON buyer.club_id = gap.club_id
 JOIN transfer_market tm
-    ON tm.status = 'available'
+    ON tm.status = 'listed'
 JOIN players p
     ON tm.player_id = p.player_id
    AND p.position_group = gap.position_group
@@ -500,16 +501,16 @@ SELECT
     p.player_name,
     fc.club_name AS from_club,
     tc.club_name AS to_club,
-    th.fee_eur,
+    th.fee_krw,
     th.transfer_date,
-    RANK() OVER (PARTITION BY th.season_id ORDER BY th.fee_eur DESC) AS fee_rank
+    RANK() OVER (PARTITION BY th.season_id ORDER BY th.fee_krw DESC) AS fee_rank
 FROM transfer_history th
 JOIN seasons s ON th.season_id = s.season_id
 JOIN players p ON th.player_id = p.player_id
 LEFT JOIN clubs fc ON th.from_club_id = fc.club_id
 LEFT JOIN clubs tc ON th.to_club_id = tc.club_id
 WHERE th.transfer_type = 'buy'
-  AND th.fee_eur > 0;
+  AND th.fee_krw > 0;
 
 CREATE VIEW v_champion_history AS
 SELECT
@@ -543,7 +544,7 @@ CREATE TRIGGER trg_club_budget_before_update
 BEFORE UPDATE ON clubs
 FOR EACH ROW
 BEGIN
-    IF NEW.current_budget_eur < 0 THEN
+    IF NEW.current_budget_krw < 0 THEN
         SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Current budget cannot be negative';
     END IF;
 END$$
@@ -563,12 +564,12 @@ BEGIN
         SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Seller club must match current player club';
     END IF;
 
-    IF NEW.status = 'available'
+    IF NEW.status = 'listed'
        AND EXISTS (
            SELECT 1 FROM transfer_market
-           WHERE player_id = NEW.player_id AND status = 'available'
+           WHERE player_id = NEW.player_id AND status = 'listed'
        ) THEN
-        SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Player already has an available listing';
+        SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Player already has an active listing';
     END IF;
 END$$
 
@@ -576,14 +577,14 @@ CREATE TRIGGER trg_market_before_update
 BEFORE UPDATE ON transfer_market
 FOR EACH ROW
 BEGIN
-    IF NEW.status = 'available'
+    IF NEW.status = 'listed'
        AND EXISTS (
            SELECT 1 FROM transfer_market
            WHERE player_id = NEW.player_id
-             AND status = 'available'
+             AND status = 'listed'
              AND listing_id <> NEW.listing_id
        ) THEN
-        SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Player already has an available listing';
+        SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Player already has an active listing';
     END IF;
 END$$
 
@@ -607,13 +608,13 @@ CREATE TRIGGER trg_audit_clubs_update
 AFTER UPDATE ON clubs
 FOR EACH ROW
 BEGIN
-    IF @app_user_id IS NOT NULL AND OLD.current_budget_eur <> NEW.current_budget_eur THEN
+    IF @app_user_id IS NOT NULL AND OLD.current_budget_krw <> NEW.current_budget_krw THEN
         INSERT INTO audit_logs
             (table_name, action_type, record_id, old_value, new_value, changed_by_user_id, note)
         VALUES
             ('clubs', 'UPDATE', NEW.club_id,
-             CONCAT('current_budget_eur=', OLD.current_budget_eur),
-             CONCAT('current_budget_eur=', NEW.current_budget_eur),
+             CONCAT('current_budget_krw=', OLD.current_budget_krw),
+             CONCAT('current_budget_krw=', NEW.current_budget_krw),
              @app_user_id,
              CONCAT(NEW.club_name, ' budget changed'));
     END IF;
@@ -628,7 +629,7 @@ BEGIN
             (table_name, action_type, record_id, new_value, changed_by_user_id, note)
         VALUES
             ('contracts', 'INSERT', NEW.contract_id,
-             CONCAT('player_id=', NEW.player_id, ', club_id=', NEW.club_id, ', salary_eur=', NEW.salary_eur),
+             CONCAT('player_id=', NEW.player_id, ', club_id=', NEW.club_id, ', salary_krw=', NEW.salary_krw),
              @app_user_id,
              'New contract created');
     END IF;
@@ -659,7 +660,7 @@ BEGIN
             (table_name, action_type, record_id, new_value, changed_by_user_id, note)
         VALUES
             ('transfer_market', 'INSERT', NEW.listing_id,
-             CONCAT('player_id=', NEW.player_id, ', asking_fee_eur=', NEW.asking_fee_eur),
+             CONCAT('player_id=', NEW.player_id, ', asking_fee_krw=', NEW.asking_fee_krw),
              @app_user_id,
              'Transfer listing created');
     END IF;
@@ -690,7 +691,7 @@ INSERT INTO data_sources (source_id, source_name, source_url, used_for) VALUES
 ('SRC_TRANSFERMARKT_K2', 'Transfermarkt K League 2 market values', 'https://www.transfermarkt.com/k-league-2/marktwerte/wettbewerb/RSK2', 'public player market values; inserted only when confidently matched to the K League official roster'),
 ('SRC_SIM_RULE', 'Simulation rules', 'local project rule', 'budgets, salary estimates, player ratings, manager ratings, squad scores, and recommendation rules; player market values are not estimated locally');
 
-INSERT INTO clubs (club_id, source_team_id, league_id, league_name, club_name, city, founded_year, stadium_name, stadium_capacity, initial_budget_eur, current_budget_eur, club_homepage, data_source_url) VALUES
+INSERT INTO clubs (club_id, source_team_id, league_id, league_name, club_name, city, founded_year, stadium_name, stadium_capacity, initial_budget_krw, current_budget_krw, club_homepage, data_source_url) VALUES
 (1, 'K09', 1, 'K League 1', 'FC Seoul', 'Seoul', 1983, 'Seoul World Cup Stadium', 66704, 16000000, 16000000, 'https://www.fcseoul.com/', 'https://www.kleague.com/player.do?leagueId=1&teamId=K09&type=active'),
 (2, 'K01', 1, 'K League 1', 'Ulsan HD FC', 'Ulsan', 1983, 'Ulsan Munsu Football Stadium', 44102, 17500000, 17500000, 'https://www.uhdfc.com/', 'https://www.kleague.com/player.do?leagueId=1&teamId=K01&type=active'),
 (3, 'K05', 1, 'K League 1', 'Jeonbuk Hyundai Motors', 'Jeonju', 1994, 'Jeonju World Cup Stadium', 42477, 18000000, 18000000, 'https://www.hyundai-motorsfc.com', 'https://www.kleague.com/player.do?leagueId=1&teamId=K05&type=active'),
@@ -720,6 +721,15 @@ INSERT INTO clubs (club_id, source_team_id, league_id, league_name, club_name, c
 (27, 'K37', 2, 'K League 2', 'Chungbuk Cheongju FC', 'Cheongju', 2002, 'Cheongju Stadium', 16280, 5600000, 5600000, 'https://chfc.kr/', 'https://www.kleague.com/player.do?leagueId=2&teamId=K37&type=active'),
 (28, 'K07', 2, 'K League 2', 'Jeonnam Dragons', 'Gwangyang', 1994, 'Gwangyang Football Stadium', 13496, 7000000, 7000000, 'https://www.dragons.co.kr', 'https://www.kleague.com/player.do?leagueId=2&teamId=K07&type=active'),
 (29, 'K41', 2, 'K League 2', 'Gimhae FC', 'Gimhae', 2008, 'Gimhae Stadium', 30000, 5200000, 5200000, 'https://gimhaefc2008.com/', 'https://www.kleague.com/player.do?leagueId=2&teamId=K41&type=active');
+
+-- Source SQL snapshots keep legacy EUR-scale numeric literals.
+-- Convert once at load time so all persisted values are KRW.
+SET @krw_fx_rate = 15 * 100;
+
+UPDATE clubs
+SET initial_budget_krw = ROUND(initial_budget_krw * @krw_fx_rate, 2),
+    current_budget_krw = ROUND(current_budget_krw * @krw_fx_rate, 2)
+WHERE initial_budget_krw < 1000000000;
 
 INSERT INTO managers (manager_id, club_id, manager_name, nationality, preferred_formation, rating, rating_source) VALUES
 (1, 1, '김기동', 'Unknown', '4-3-3', 82, 'OFFICIAL_MANAGER_LIST_SIM_RULE'),
@@ -755,7 +765,7 @@ INSERT INTO managers (manager_id, club_id, manager_name, nationality, preferred_
 INSERT INTO seasons (season_id, season_name, start_date, status) VALUES
 (1, '2026', '2026-01-01', 'active');
 
-INSERT INTO players (player_id, source_player_id, club_id, original_club_id, player_name, nationality, birth_date, age, position_group, primary_position, squad_number, height_cm, weight_kg, preferred_foot, market_value_eur, contract_until, joined_date, profile_source_url, value_source_url) VALUES
+INSERT INTO players (player_id, source_player_id, club_id, original_club_id, player_name, nationality, birth_date, age, position_group, primary_position, squad_number, height_cm, weight_kg, preferred_foot, market_value_krw, contract_until, joined_date, profile_source_url, value_source_url) VALUES
 (20250060, '20250060', 1, 1, '김지원', 'South Korea', '2004-02-12', 22, 'DF', 'DF', 36, 189, 82, 'Unknown', 0, NULL, '2026-01-01', 'https://www.kleague.com/record/playerDetail.do?playerId=20250060', 'NO_CONFIDENT_TRANSFERMARKT_MATCH'),
 (20170185, '20170185', 1, 1, '김진수', 'South Korea', '1992-06-13', 33, 'DF', 'DF', 22, 177, 68, 'Unknown', 0, NULL, '2026-01-01', 'https://www.kleague.com/record/playerDetail.do?playerId=20170185', 'NO_CONFIDENT_TRANSFERMARKT_MATCH'),
 (20260048, '20260048', 1, 1, '로스', 'Spain', '1996-03-15', 30, 'DF', 'DF', 37, 187, 78, 'Unknown', 900000, NULL, '2026-01-01', 'https://www.kleague.com/record/playerDetail.do?playerId=20260048', 'https://www.transfermarkt.com/juan-antonio-ros/marktwertverlauf/spieler/256018'),
@@ -1007,7 +1017,7 @@ INSERT INTO players (player_id, source_player_id, club_id, original_club_id, pla
 (20260163, '20260163', 6, 6, '제르소', 'Portugal', '1991-02-23', 35, 'MF', 'MF', 11, 172, 62, 'Unknown', 0, NULL, '2026-01-01', 'https://www.kleague.com/record/playerDetail.do?playerId=20260163', 'NO_CONFIDENT_TRANSFERMARKT_MATCH'),
 (20130102, '20130102', 7, 7, '권경원', 'South Korea', '1992-01-31', 34, 'DF', 'Centre-Back', 21, 188, 83, 'left', 0, NULL, '2026-01-01', 'https://www.kleague.com/record/playerDetail.do?playerId=20130102', 'NO_CONFIDENT_TRANSFERMARKT_MATCH');
 
-INSERT INTO players (player_id, source_player_id, club_id, original_club_id, player_name, nationality, birth_date, age, position_group, primary_position, squad_number, height_cm, weight_kg, preferred_foot, market_value_eur, contract_until, joined_date, profile_source_url, value_source_url) VALUES
+INSERT INTO players (player_id, source_player_id, club_id, original_club_id, player_name, nationality, birth_date, age, position_group, primary_position, squad_number, height_cm, weight_kg, preferred_foot, market_value_krw, contract_until, joined_date, profile_source_url, value_source_url) VALUES
 (20140135, '20140135', 7, 7, '김동진', 'South Korea', '1992-12-28', 33, 'DF', 'Left-Back', 22, 177, 74, 'left', 0, NULL, '2026-01-01', 'https://www.kleague.com/record/playerDetail.do?playerId=20140135', 'NO_CONFIDENT_TRANSFERMARKT_MATCH'),
 (20240077, '20240077', 7, 7, '김민호', 'South Korea', '2003-01-09', 23, 'DF', 'DF', 37, 174, 68, 'Unknown', 0, NULL, '2026-01-01', 'https://www.kleague.com/record/playerDetail.do?playerId=20240077', 'NO_CONFIDENT_TRANSFERMARKT_MATCH'),
 (20130101, '20130101', 7, 7, '김영찬', 'South Korea', '1993-09-04', 32, 'DF', 'Centre-Back', 5, 189, 84, 'right', 0, NULL, '2026-01-01', 'https://www.kleague.com/record/playerDetail.do?playerId=20130101', 'NO_CONFIDENT_TRANSFERMARKT_MATCH'),
@@ -1259,7 +1269,7 @@ INSERT INTO players (player_id, source_player_id, club_id, original_club_id, pla
 (20220152, '20220152', 14, 14, '이준재', 'South Korea', '2003-07-14', 22, 'DF', 'DF', 11, 181, 70, 'Unknown', 275000, NULL, '2026-01-01', 'https://www.kleague.com/record/playerDetail.do?playerId=20220152', 'https://www.transfermarkt.com/jun-jae-lee/marktwertverlauf/spieler/922611'),
 (20230099, '20230099', 14, 14, '장석환', 'South Korea', '2004-10-11', 21, 'DF', 'DF', 2, 180, 70, 'Unknown', 0, NULL, '2026-01-01', 'https://www.kleague.com/record/playerDetail.do?playerId=20230099', 'NO_CONFIDENT_TRANSFERMARKT_MATCH');
 
-INSERT INTO players (player_id, source_player_id, club_id, original_club_id, player_name, nationality, birth_date, age, position_group, primary_position, squad_number, height_cm, weight_kg, preferred_foot, market_value_eur, contract_until, joined_date, profile_source_url, value_source_url) VALUES
+INSERT INTO players (player_id, source_player_id, club_id, original_club_id, player_name, nationality, birth_date, age, position_group, primary_position, squad_number, height_cm, weight_kg, preferred_foot, market_value_krw, contract_until, joined_date, profile_source_url, value_source_url) VALUES
 (20160236, '20160236', 14, 14, '정동윤', 'South Korea', '1994-04-03', 32, 'DF', 'DF', 32, 175, 72, 'Unknown', 0, NULL, '2026-01-01', 'https://www.kleague.com/record/playerDetail.do?playerId=20160236', 'NO_CONFIDENT_TRANSFERMARKT_MATCH'),
 (20240222, '20240222', 14, 14, '정성민', 'South Korea', '2005-04-15', 21, 'DF', 'DF', 15, 189, 78, 'Unknown', 0, NULL, '2026-01-01', 'https://www.kleague.com/record/playerDetail.do?playerId=20240222', 'NO_CONFIDENT_TRANSFERMARKT_MATCH'),
 (20200162, '20200162', 14, 14, '최지묵', 'South Korea', '1998-10-09', 27, 'DF', 'DF', 18, 178, 70, 'Unknown', 0, NULL, '2026-01-01', 'https://www.kleague.com/record/playerDetail.do?playerId=20200162', 'NO_CONFIDENT_TRANSFERMARKT_MATCH'),
@@ -1511,7 +1521,7 @@ INSERT INTO players (player_id, source_player_id, club_id, original_club_id, pla
 (20260203, '20260203', 20, 20, '정예준', 'South Korea', '2007-03-17', 19, 'DF', 'DF', 46, 185, 78, 'Unknown', 0, NULL, '2026-01-01', 'https://www.kleague.com/record/playerDetail.do?playerId=20260203', 'NO_CONFIDENT_TRANSFERMARKT_MATCH'),
 (20240201, '20240201', 20, 20, '정이서', 'South Korea', '2003-03-24', 23, 'DF', 'DF', 43, 185, 76, 'Unknown', 0, NULL, '2026-01-01', 'https://www.kleague.com/record/playerDetail.do?playerId=20240201', 'NO_CONFIDENT_TRANSFERMARKT_MATCH');
 
-INSERT INTO players (player_id, source_player_id, club_id, original_club_id, player_name, nationality, birth_date, age, position_group, primary_position, squad_number, height_cm, weight_kg, preferred_foot, market_value_eur, contract_until, joined_date, profile_source_url, value_source_url) VALUES
+INSERT INTO players (player_id, source_player_id, club_id, original_club_id, player_name, nationality, birth_date, age, position_group, primary_position, squad_number, height_cm, weight_kg, preferred_foot, market_value_krw, contract_until, joined_date, profile_source_url, value_source_url) VALUES
 (20110015, '20110015', 20, 20, '최보경', 'South Korea', '1988-04-12', 38, 'DF', 'DF', 20, 184, 79, 'Unknown', 0, NULL, '2026-01-01', 'https://www.kleague.com/record/playerDetail.do?playerId=20110015', 'NO_CONFIDENT_TRANSFERMARKT_MATCH'),
 (20220080, '20220080', 20, 20, '최현웅', 'South Korea', '2003-10-09', 22, 'DF', 'DF', 45, 188, 80, 'Unknown', 0, NULL, '2026-01-01', 'https://www.kleague.com/record/playerDetail.do?playerId=20220080', 'NO_CONFIDENT_TRANSFERMARKT_MATCH'),
 (20200017, '20200017', 20, 20, '최희원', 'South Korea', '1999-05-11', 27, 'DF', 'DF', 6, 184, 78, 'Unknown', 0, NULL, '2026-01-01', 'https://www.kleague.com/record/playerDetail.do?playerId=20200017', 'NO_CONFIDENT_TRANSFERMARKT_MATCH'),
@@ -1763,7 +1773,7 @@ INSERT INTO players (player_id, source_player_id, club_id, original_club_id, pla
 (20200080, '20200080', 27, 27, '이강한', 'South Korea', '2000-04-07', 26, 'DF', 'DF', 66, 175, 71, 'Unknown', 0, NULL, '2026-01-01', 'https://www.kleague.com/record/playerDetail.do?playerId=20200080', 'NO_CONFIDENT_TRANSFERMARKT_MATCH'),
 (20180017, '20180017', 27, 27, '이창훈', 'South Korea', '1995-11-16', 30, 'DF', 'DF', 99, 187, 80, 'Unknown', 0, NULL, '2026-01-01', 'https://www.kleague.com/record/playerDetail.do?playerId=20180017', 'NO_CONFIDENT_TRANSFERMARKT_MATCH');
 
-INSERT INTO players (player_id, source_player_id, club_id, original_club_id, player_name, nationality, birth_date, age, position_group, primary_position, squad_number, height_cm, weight_kg, preferred_foot, market_value_eur, contract_until, joined_date, profile_source_url, value_source_url) VALUES
+INSERT INTO players (player_id, source_player_id, club_id, original_club_id, player_name, nationality, birth_date, age, position_group, primary_position, squad_number, height_cm, weight_kg, preferred_foot, market_value_krw, contract_until, joined_date, profile_source_url, value_source_url) VALUES
 (20240109, '20240109', 27, 27, '임준영', 'South Korea', '2005-11-14', 20, 'DF', 'DF', 39, 177, 63, 'Unknown', 0, NULL, '2026-01-01', 'https://www.kleague.com/record/playerDetail.do?playerId=20240109', 'NO_CONFIDENT_TRANSFERMARKT_MATCH'),
 (20200076, '20200076', 27, 27, '조윤성', 'South Korea', '1999-01-12', 27, 'DF', 'DF', 4, 183, 80, 'Unknown', 0, NULL, '2026-01-01', 'https://www.kleague.com/record/playerDetail.do?playerId=20200076', 'NO_CONFIDENT_TRANSFERMARKT_MATCH'),
 (20160075, '20160075', 27, 27, '조주영', 'South Korea', '1994-02-04', 32, 'DF', 'DF', 18, 187, 85, 'Unknown', 0, NULL, '2026-01-01', 'https://www.kleague.com/record/playerDetail.do?playerId=20160075', 'NO_CONFIDENT_TRANSFERMARKT_MATCH'),
@@ -2959,7 +2969,12 @@ INSERT INTO player_stats (player_id, appearances, starts_estimated, goals, assis
 (20240106, 2, 0, 0, 0, 0, 0, 0, 58, 45, 59, 51, 52, 'DERIVED_FROM_KLEAGUE_2026_PUBLIC_RECORDS'),
 (20200091, 11, 10, 0, 0, 2, 0, 0, 59, 45, 65, 54, 55, 'DERIVED_FROM_KLEAGUE_2026_PUBLIC_RECORDS');
 
-INSERT INTO contracts (player_id, club_id, start_date, end_date, salary_eur, status) VALUES
+UPDATE players
+SET market_value_krw = ROUND(market_value_krw * @krw_fx_rate, 2)
+WHERE market_value_krw > 0
+  AND market_value_krw < 50000000;
+
+INSERT INTO contracts (player_id, club_id, start_date, end_date, salary_krw, status) VALUES
 (20250060, 1, '2026-01-01', '2028-01-01', 20000, 'active'),
 (20170185, 1, '2026-01-01', '2028-01-01', 20000, 'active'),
 (20260048, 1, '2026-01-01', '2028-01-01', 70000, 'active'),
@@ -3211,7 +3226,7 @@ INSERT INTO contracts (player_id, club_id, start_date, end_date, salary_eur, sta
 (20260163, 6, '2026-01-01', '2028-01-01', 20000, 'active'),
 (20130102, 7, '2026-01-01', '2028-01-01', 20000, 'active');
 
-INSERT INTO contracts (player_id, club_id, start_date, end_date, salary_eur, status) VALUES
+INSERT INTO contracts (player_id, club_id, start_date, end_date, salary_krw, status) VALUES
 (20140135, 7, '2026-01-01', '2028-01-01', 20000, 'active'),
 (20240077, 7, '2026-01-01', '2028-01-01', 20000, 'active'),
 (20130101, 7, '2026-01-01', '2028-01-01', 20000, 'active'),
@@ -3463,7 +3478,7 @@ INSERT INTO contracts (player_id, club_id, start_date, end_date, salary_eur, sta
 (20220152, 14, '2026-01-01', '2028-01-01', 20000, 'active'),
 (20230099, 14, '2026-01-01', '2028-01-01', 20000, 'active');
 
-INSERT INTO contracts (player_id, club_id, start_date, end_date, salary_eur, status) VALUES
+INSERT INTO contracts (player_id, club_id, start_date, end_date, salary_krw, status) VALUES
 (20160236, 14, '2026-01-01', '2028-01-01', 20000, 'active'),
 (20240222, 14, '2026-01-01', '2028-01-01', 20000, 'active'),
 (20200162, 14, '2026-01-01', '2028-01-01', 20000, 'active'),
@@ -3715,7 +3730,7 @@ INSERT INTO contracts (player_id, club_id, start_date, end_date, salary_eur, sta
 (20260203, 20, '2026-01-01', '2028-01-01', 20000, 'active'),
 (20240201, 20, '2026-01-01', '2028-01-01', 20000, 'active');
 
-INSERT INTO contracts (player_id, club_id, start_date, end_date, salary_eur, status) VALUES
+INSERT INTO contracts (player_id, club_id, start_date, end_date, salary_krw, status) VALUES
 (20110015, 20, '2026-01-01', '2028-01-01', 20000, 'active'),
 (20220080, 20, '2026-01-01', '2028-01-01', 20000, 'active'),
 (20200017, 20, '2026-01-01', '2028-01-01', 20000, 'active'),
@@ -3967,7 +3982,7 @@ INSERT INTO contracts (player_id, club_id, start_date, end_date, salary_eur, sta
 (20200080, 27, '2026-01-01', '2028-01-01', 20000, 'active'),
 (20180017, 27, '2026-01-01', '2028-01-01', 20000, 'active');
 
-INSERT INTO contracts (player_id, club_id, start_date, end_date, salary_eur, status) VALUES
+INSERT INTO contracts (player_id, club_id, start_date, end_date, salary_krw, status) VALUES
 (20240109, 27, '2026-01-01', '2028-01-01', 20000, 'active'),
 (20200076, 27, '2026-01-01', '2028-01-01', 20000, 'active'),
 (20160075, 27, '2026-01-01', '2028-01-01', 20000, 'active'),
@@ -4061,178 +4076,187 @@ INSERT INTO contracts (player_id, club_id, start_date, end_date, salary_eur, sta
 (20240106, 29, '2026-01-01', '2028-01-01', 20000, 'active'),
 (20200091, 29, '2026-01-01', '2028-01-01', 20000, 'active');
 
-INSERT INTO transfer_market (listing_id, player_id, seller_club_id, asking_fee_eur, listed_date, status) VALUES
-(1, 20260048, 1, 900000, '2026-01-01', 'available'),
-(2, 20240324, 1, 1000000, '2026-01-01', 'available'),
-(3, 20200041, 1, 700000, '2026-01-01', 'available'),
-(4, 20180034, 1, 1000000, '2026-01-01', 'available'),
-(5, 20240179, 1, 650000, '2026-01-01', 'available'),
-(6, 20180073, 1, 450000, '2026-01-01', 'available'),
-(7, 20250331, 1, 550000, '2026-01-01', 'available'),
-(8, 20140038, 1, 400000, '2026-01-01', 'available'),
-(9, 20200301, 1, 500000, '2026-01-01', 'available'),
-(10, 20260045, 1, 900000, '2026-01-01', 'available'),
-(11, 20170052, 1, 450000, '2026-01-01', 'available'),
-(12, 20160099, 1, 550000, '2026-01-01', 'available'),
-(13, 20140033, 2, 600000, '2026-01-01', 'available'),
-(14, 20150109, 2, 1000000, '2026-01-01', 'available'),
-(15, 20200055, 2, 600000, '2026-01-01', 'available'),
-(16, 20170095, 2, 750000, '2026-01-01', 'available'),
-(17, 20230315, 2, 900000, '2026-01-01', 'available'),
-(18, 20260029, 2, 1200000, '2026-01-01', 'available'),
-(19, 20200099, 2, 400000, '2026-01-01', 'available'),
-(20, 20130156, 2, 650000, '2026-01-01', 'available'),
-(21, 20230108, 2, 750000, '2026-01-01', 'available'),
-(22, 20150050, 2, 450000, '2026-01-01', 'available'),
-(23, 20180088, 2, 1600000, '2026-01-01', 'available'),
-(24, 20180185, 3, 750000, '2026-01-01', 'available'),
-(25, 20130142, 3, 450000, '2026-01-01', 'available'),
-(26, 20220174, 3, 550000, '2026-01-01', 'available'),
-(27, 20180212, 3, 500000, '2026-01-01', 'available'),
-(28, 20230224, 3, 550000, '2026-01-01', 'available'),
-(29, 20170121, 3, 500000, '2026-01-01', 'available'),
-(30, 20220042, 3, 450000, '2026-01-01', 'available'),
-(31, 20250061, 3, 2000000, '2026-01-01', 'available'),
-(32, 20220244, 3, 650000, '2026-01-01', 'available'),
-(33, 20180025, 3, 1000000, '2026-01-01', 'available'),
-(34, 20250353, 3, 400000, '2026-01-01', 'available'),
-(35, 20150052, 3, 1200000, '2026-01-01', 'available'),
-(36, 20190084, 3, 500000, '2026-01-01', 'available'),
-(37, 20230043, 3, 1200000, '2026-01-01', 'available'),
-(38, 20150104, 3, 450000, '2026-01-01', 'available'),
-(39, 20230270, 4, 400000, '2026-01-01', 'available'),
-(40, 20230308, 4, 650000, '2026-01-01', 'available'),
-(41, 20210112, 4, 400000, '2026-01-01', 'available'),
-(42, 20210104, 4, 800000, '2026-01-01', 'available'),
-(43, 20160098, 4, 800000, '2026-01-01', 'available'),
-(44, 20170164, 4, 750000, '2026-01-01', 'available'),
-(45, 20210116, 4, 400000, '2026-01-01', 'available'),
-(46, 20200066, 4, 450000, '2026-01-01', 'available'),
-(47, 20180235, 4, 750000, '2026-01-01', 'available'),
-(48, 20200077, 4, 600000, '2026-01-01', 'available'),
-(49, 20230067, 4, 400000, '2026-01-01', 'available'),
-(50, 20170182, 4, 400000, '2026-01-01', 'available'),
-(51, 20200146, 5, 700000, '2026-01-01', 'available'),
-(52, 20210161, 5, 900000, '2026-01-01', 'available'),
-(53, 20160079, 5, 500000, '2026-01-01', 'available'),
-(54, 20260024, 5, 500000, '2026-01-01', 'available'),
-(55, 20230053, 6, 400000, '2026-01-01', 'available'),
-(56, 20260162, 6, 400000, '2026-01-01', 'available'),
-(57, 20190064, 6, 450000, '2026-01-01', 'available'),
-(58, 20220279, 6, 400000, '2026-01-01', 'available'),
-(59, 20260161, 6, 400000, '2026-01-01', 'available'),
-(60, 20250087, 7, 500000, '2026-01-01', 'available'),
-(61, 20190375, 7, 450000, '2026-01-01', 'available'),
-(62, 20240078, 7, 800000, '2026-01-01', 'available'),
-(63, 20250093, 8, 450000, '2026-01-01', 'available'),
-(64, 20260294, 8, 700000, '2026-01-01', 'available'),
-(65, 20260228, 8, 900000, '2026-01-01', 'available'),
-(66, 20160156, 8, 500000, '2026-01-01', 'available'),
-(67, 20240323, 8, 400000, '2026-01-01', 'available'),
-(68, 20260222, 8, 400000, '2026-01-01', 'available'),
-(69, 20260109, 9, 600000, '2026-01-01', 'available'),
-(70, 20170122, 10, 750000, '2026-01-01', 'available'),
-(71, 20190041, 10, 500000, '2026-01-01', 'available'),
-(72, 20140041, 10, 400000, '2026-01-01', 'available'),
-(73, 20170173, 10, 700000, '2026-01-01', 'available'),
-(74, 20260062, 10, 800000, '2026-01-01', 'available'),
-(75, 20130248, 10, 600000, '2026-01-01', 'available'),
-(76, 20120148, 10, 550000, '2026-01-01', 'available'),
-(77, 20210176, 10, 900000, '2026-01-01', 'available'),
-(78, 20230326, 10, 500000, '2026-01-01', 'available'),
-(79, 20190172, 10, 700000, '2026-01-01', 'available'),
-(80, 20170097, 10, 450000, '2026-01-01', 'available'),
-(81, 20180324, 11, 400000, '2026-01-01', 'available'),
-(82, 20200317, 11, 450000, '2026-01-01', 'available'),
-(83, 20230198, 11, 400000, '2026-01-01', 'available'),
-(84, 20170022, 11, 650000, '2026-01-01', 'available'),
-(85, 20210124, 11, 550000, '2026-01-01', 'available'),
-(86, 20230332, 11, 550000, '2026-01-01', 'available'),
-(87, 20190154, 11, 400000, '2026-01-01', 'available'),
-(88, 20150030, 13, 450000, '2026-01-01', 'available'),
-(89, 20150101, 13, 400000, '2026-01-01', 'available'),
-(90, 20160122, 13, 300000, '2026-01-01', 'available'),
-(91, 20190115, 13, 275000, '2026-01-01', 'available'),
-(92, 20260270, 13, 1200000, '2026-01-01', 'available'),
-(93, 20250230, 13, 275000, '2026-01-01', 'available'),
-(94, 20160031, 13, 300000, '2026-01-01', 'available'),
-(95, 20190142, 14, 350000, '2026-01-01', 'available'),
-(96, 20190049, 14, 350000, '2026-01-01', 'available'),
-(97, 20240152, 14, 300000, '2026-01-01', 'available'),
-(98, 20220152, 14, 275000, '2026-01-01', 'available'),
-(99, 20100163, 14, 400000, '2026-01-01', 'available'),
-(100, 20210079, 14, 300000, '2026-01-01', 'available'),
-(101, 20180118, 14, 400000, '2026-01-01', 'available'),
-(102, 20240190, 14, 550000, '2026-01-01', 'available'),
-(103, 20230316, 14, 275000, '2026-01-01', 'available'),
-(104, 20230163, 14, 550000, '2026-01-01', 'available'),
-(105, 20210291, 14, 300000, '2026-01-01', 'available'),
-(106, 20140081, 14, 275000, '2026-01-01', 'available'),
-(107, 20200035, 14, 300000, '2026-01-01', 'available'),
-(108, 20160115, 14, 700000, '2026-01-01', 'available'),
-(109, 20220114, 14, 350000, '2026-01-01', 'available'),
-(110, 20220145, 14, 1000000, '2026-01-01', 'available'),
-(111, 20240054, 15, 300000, '2026-01-01', 'available'),
-(112, 20250344, 15, 500000, '2026-01-01', 'available'),
-(113, 20220035, 15, 350000, '2026-01-01', 'available'),
-(114, 20210175, 15, 350000, '2026-01-01', 'available'),
-(115, 20250193, 15, 500000, '2026-01-01', 'available'),
-(116, 20250192, 15, 600000, '2026-01-01', 'available'),
-(117, 20200019, 15, 350000, '2026-01-01', 'available'),
-(118, 20210138, 15, 300000, '2026-01-01', 'available'),
-(119, 20240301, 15, 275000, '2026-01-01', 'available'),
-(120, 20260323, 15, 550000, '2026-01-01', 'available'),
-(121, 20250294, 16, 600000, '2026-01-01', 'available'),
-(122, 20260136, 16, 500000, '2026-01-01', 'available'),
-(123, 20220086, 16, 450000, '2026-01-01', 'available'),
-(124, 20250358, 16, 400000, '2026-01-01', 'available'),
-(125, 20200136, 17, 550000, '2026-01-01', 'available'),
-(126, 20180128, 17, 300000, '2026-01-01', 'available'),
-(127, 20220106, 17, 550000, '2026-01-01', 'available'),
-(128, 20250222, 17, 600000, '2026-01-01', 'available'),
-(129, 20260153, 17, 450000, '2026-01-01', 'available'),
-(130, 20150035, 17, 350000, '2026-01-01', 'available'),
-(131, 20260159, 17, 400000, '2026-01-01', 'available'),
-(132, 20170283, 17, 400000, '2026-01-01', 'available'),
-(133, 20260096, 18, 400000, '2026-01-01', 'available'),
-(134, 20200089, 18, 350000, '2026-01-01', 'available'),
-(135, 20260097, 18, 400000, '2026-01-01', 'available'),
-(136, 20190291, 18, 450000, '2026-01-01', 'available'),
-(137, 20160096, 18, 300000, '2026-01-01', 'available'),
-(138, 20190139, 18, 400000, '2026-01-01', 'available'),
-(139, 20260098, 18, 2000000, '2026-01-01', 'available'),
-(140, 20160065, 18, 275000, '2026-01-01', 'available'),
-(141, 20180125, 19, 325000, '2026-01-01', 'available'),
-(142, 20160011, 19, 275000, '2026-01-01', 'available'),
-(143, 20170175, 19, 275000, '2026-01-01', 'available'),
-(144, 20230147, 19, 600000, '2026-01-01', 'available'),
-(145, 20260146, 19, 450000, '2026-01-01', 'available'),
-(146, 20250283, 19, 450000, '2026-01-01', 'available'),
-(147, 20180111, 20, 275000, '2026-01-01', 'available'),
-(148, 20260282, 20, 800000, '2026-01-01', 'available'),
-(149, 20260206, 20, 300000, '2026-01-01', 'available'),
-(150, 20110138, 20, 400000, '2026-01-01', 'available'),
-(151, 20210152, 20, 375000, '2026-01-01', 'available'),
-(152, 20140032, 20, 550000, '2026-01-01', 'available'),
-(153, 20250350, 21, 400000, '2026-01-01', 'available'),
-(154, 20180204, 21, 300000, '2026-01-01', 'available'),
-(155, 20110157, 21, 300000, '2026-01-01', 'available'),
-(156, 20210167, 21, 275000, '2026-01-01', 'available'),
-(157, 20200056, 22, 325000, '2026-01-01', 'available'),
-(158, 20100058, 22, 275000, '2026-01-01', 'available'),
-(159, 20250232, 22, 400000, '2026-01-01', 'available'),
-(160, 20190058, 22, 400000, '2026-01-01', 'available'),
-(161, 20240245, 23, 550000, '2026-01-01', 'available'),
-(162, 20260288, 24, 450000, '2026-01-01', 'available'),
-(163, 20260117, 24, 350000, '2026-01-01', 'available'),
-(164, 20170171, 25, 300000, '2026-01-01', 'available'),
-(165, 20110158, 25, 375000, '2026-01-01', 'available'),
-(166, 20260173, 26, 300000, '2026-01-01', 'available'),
-(167, 20260195, 27, 700000, '2026-01-01', 'available'),
-(168, 20200134, 28, 325000, '2026-01-01', 'available'),
-(169, 20200079, 28, 300000, '2026-01-01', 'available'),
-(170, 20260273, 29, 350000, '2026-01-01', 'available'),
-(171, 20250345, 29, 500000, '2026-01-01', 'available');
+UPDATE contracts
+SET salary_krw = ROUND(salary_krw * @krw_fx_rate, 2)
+WHERE salary_krw > 0
+  AND salary_krw < 500000000;
+
+INSERT INTO transfer_market (listing_id, player_id, seller_club_id, asking_fee_krw, listed_date, status) VALUES
+(1, 20260048, 1, 900000, '2026-01-01', 'listed'),
+(2, 20240324, 1, 1000000, '2026-01-01', 'listed'),
+(3, 20200041, 1, 700000, '2026-01-01', 'listed'),
+(4, 20180034, 1, 1000000, '2026-01-01', 'listed'),
+(5, 20240179, 1, 650000, '2026-01-01', 'listed'),
+(6, 20180073, 1, 450000, '2026-01-01', 'listed'),
+(7, 20250331, 1, 550000, '2026-01-01', 'listed'),
+(8, 20140038, 1, 400000, '2026-01-01', 'listed'),
+(9, 20200301, 1, 500000, '2026-01-01', 'listed'),
+(10, 20260045, 1, 900000, '2026-01-01', 'listed'),
+(11, 20170052, 1, 450000, '2026-01-01', 'listed'),
+(12, 20160099, 1, 550000, '2026-01-01', 'listed'),
+(13, 20140033, 2, 600000, '2026-01-01', 'listed'),
+(14, 20150109, 2, 1000000, '2026-01-01', 'listed'),
+(15, 20200055, 2, 600000, '2026-01-01', 'listed'),
+(16, 20170095, 2, 750000, '2026-01-01', 'listed'),
+(17, 20230315, 2, 900000, '2026-01-01', 'listed'),
+(18, 20260029, 2, 1200000, '2026-01-01', 'listed'),
+(19, 20200099, 2, 400000, '2026-01-01', 'listed'),
+(20, 20130156, 2, 650000, '2026-01-01', 'listed'),
+(21, 20230108, 2, 750000, '2026-01-01', 'listed'),
+(22, 20150050, 2, 450000, '2026-01-01', 'listed'),
+(23, 20180088, 2, 1600000, '2026-01-01', 'listed'),
+(24, 20180185, 3, 750000, '2026-01-01', 'listed'),
+(25, 20130142, 3, 450000, '2026-01-01', 'listed'),
+(26, 20220174, 3, 550000, '2026-01-01', 'listed'),
+(27, 20180212, 3, 500000, '2026-01-01', 'listed'),
+(28, 20230224, 3, 550000, '2026-01-01', 'listed'),
+(29, 20170121, 3, 500000, '2026-01-01', 'listed'),
+(30, 20220042, 3, 450000, '2026-01-01', 'listed'),
+(31, 20250061, 3, 2000000, '2026-01-01', 'listed'),
+(32, 20220244, 3, 650000, '2026-01-01', 'listed'),
+(33, 20180025, 3, 1000000, '2026-01-01', 'listed'),
+(34, 20250353, 3, 400000, '2026-01-01', 'listed'),
+(35, 20150052, 3, 1200000, '2026-01-01', 'listed'),
+(36, 20190084, 3, 500000, '2026-01-01', 'listed'),
+(37, 20230043, 3, 1200000, '2026-01-01', 'listed'),
+(38, 20150104, 3, 450000, '2026-01-01', 'listed'),
+(39, 20230270, 4, 400000, '2026-01-01', 'listed'),
+(40, 20230308, 4, 650000, '2026-01-01', 'listed'),
+(41, 20210112, 4, 400000, '2026-01-01', 'listed'),
+(42, 20210104, 4, 800000, '2026-01-01', 'listed'),
+(43, 20160098, 4, 800000, '2026-01-01', 'listed'),
+(44, 20170164, 4, 750000, '2026-01-01', 'listed'),
+(45, 20210116, 4, 400000, '2026-01-01', 'listed'),
+(46, 20200066, 4, 450000, '2026-01-01', 'listed'),
+(47, 20180235, 4, 750000, '2026-01-01', 'listed'),
+(48, 20200077, 4, 600000, '2026-01-01', 'listed'),
+(49, 20230067, 4, 400000, '2026-01-01', 'listed'),
+(50, 20170182, 4, 400000, '2026-01-01', 'listed'),
+(51, 20200146, 5, 700000, '2026-01-01', 'listed'),
+(52, 20210161, 5, 900000, '2026-01-01', 'listed'),
+(53, 20160079, 5, 500000, '2026-01-01', 'listed'),
+(54, 20260024, 5, 500000, '2026-01-01', 'listed'),
+(55, 20230053, 6, 400000, '2026-01-01', 'listed'),
+(56, 20260162, 6, 400000, '2026-01-01', 'listed'),
+(57, 20190064, 6, 450000, '2026-01-01', 'listed'),
+(58, 20220279, 6, 400000, '2026-01-01', 'listed'),
+(59, 20260161, 6, 400000, '2026-01-01', 'listed'),
+(60, 20250087, 7, 500000, '2026-01-01', 'listed'),
+(61, 20190375, 7, 450000, '2026-01-01', 'listed'),
+(62, 20240078, 7, 800000, '2026-01-01', 'listed'),
+(63, 20250093, 8, 450000, '2026-01-01', 'listed'),
+(64, 20260294, 8, 700000, '2026-01-01', 'listed'),
+(65, 20260228, 8, 900000, '2026-01-01', 'listed'),
+(66, 20160156, 8, 500000, '2026-01-01', 'listed'),
+(67, 20240323, 8, 400000, '2026-01-01', 'listed'),
+(68, 20260222, 8, 400000, '2026-01-01', 'listed'),
+(69, 20260109, 9, 600000, '2026-01-01', 'listed'),
+(70, 20170122, 10, 750000, '2026-01-01', 'listed'),
+(71, 20190041, 10, 500000, '2026-01-01', 'listed'),
+(72, 20140041, 10, 400000, '2026-01-01', 'listed'),
+(73, 20170173, 10, 700000, '2026-01-01', 'listed'),
+(74, 20260062, 10, 800000, '2026-01-01', 'listed'),
+(75, 20130248, 10, 600000, '2026-01-01', 'listed'),
+(76, 20120148, 10, 550000, '2026-01-01', 'listed'),
+(77, 20210176, 10, 900000, '2026-01-01', 'listed'),
+(78, 20230326, 10, 500000, '2026-01-01', 'listed'),
+(79, 20190172, 10, 700000, '2026-01-01', 'listed'),
+(80, 20170097, 10, 450000, '2026-01-01', 'listed'),
+(81, 20180324, 11, 400000, '2026-01-01', 'listed'),
+(82, 20200317, 11, 450000, '2026-01-01', 'listed'),
+(83, 20230198, 11, 400000, '2026-01-01', 'listed'),
+(84, 20170022, 11, 650000, '2026-01-01', 'listed'),
+(85, 20210124, 11, 550000, '2026-01-01', 'listed'),
+(86, 20230332, 11, 550000, '2026-01-01', 'listed'),
+(87, 20190154, 11, 400000, '2026-01-01', 'listed'),
+(88, 20150030, 13, 450000, '2026-01-01', 'listed'),
+(89, 20150101, 13, 400000, '2026-01-01', 'listed'),
+(90, 20160122, 13, 300000, '2026-01-01', 'listed'),
+(91, 20190115, 13, 275000, '2026-01-01', 'listed'),
+(92, 20260270, 13, 1200000, '2026-01-01', 'listed'),
+(93, 20250230, 13, 275000, '2026-01-01', 'listed'),
+(94, 20160031, 13, 300000, '2026-01-01', 'listed'),
+(95, 20190142, 14, 350000, '2026-01-01', 'listed'),
+(96, 20190049, 14, 350000, '2026-01-01', 'listed'),
+(97, 20240152, 14, 300000, '2026-01-01', 'listed'),
+(98, 20220152, 14, 275000, '2026-01-01', 'listed'),
+(99, 20100163, 14, 400000, '2026-01-01', 'listed'),
+(100, 20210079, 14, 300000, '2026-01-01', 'listed'),
+(101, 20180118, 14, 400000, '2026-01-01', 'listed'),
+(102, 20240190, 14, 550000, '2026-01-01', 'listed'),
+(103, 20230316, 14, 275000, '2026-01-01', 'listed'),
+(104, 20230163, 14, 550000, '2026-01-01', 'listed'),
+(105, 20210291, 14, 300000, '2026-01-01', 'listed'),
+(106, 20140081, 14, 275000, '2026-01-01', 'listed'),
+(107, 20200035, 14, 300000, '2026-01-01', 'listed'),
+(108, 20160115, 14, 700000, '2026-01-01', 'listed'),
+(109, 20220114, 14, 350000, '2026-01-01', 'listed'),
+(110, 20220145, 14, 1000000, '2026-01-01', 'listed'),
+(111, 20240054, 15, 300000, '2026-01-01', 'listed'),
+(112, 20250344, 15, 500000, '2026-01-01', 'listed'),
+(113, 20220035, 15, 350000, '2026-01-01', 'listed'),
+(114, 20210175, 15, 350000, '2026-01-01', 'listed'),
+(115, 20250193, 15, 500000, '2026-01-01', 'listed'),
+(116, 20250192, 15, 600000, '2026-01-01', 'listed'),
+(117, 20200019, 15, 350000, '2026-01-01', 'listed'),
+(118, 20210138, 15, 300000, '2026-01-01', 'listed'),
+(119, 20240301, 15, 275000, '2026-01-01', 'listed'),
+(120, 20260323, 15, 550000, '2026-01-01', 'listed'),
+(121, 20250294, 16, 600000, '2026-01-01', 'listed'),
+(122, 20260136, 16, 500000, '2026-01-01', 'listed'),
+(123, 20220086, 16, 450000, '2026-01-01', 'listed'),
+(124, 20250358, 16, 400000, '2026-01-01', 'listed'),
+(125, 20200136, 17, 550000, '2026-01-01', 'listed'),
+(126, 20180128, 17, 300000, '2026-01-01', 'listed'),
+(127, 20220106, 17, 550000, '2026-01-01', 'listed'),
+(128, 20250222, 17, 600000, '2026-01-01', 'listed'),
+(129, 20260153, 17, 450000, '2026-01-01', 'listed'),
+(130, 20150035, 17, 350000, '2026-01-01', 'listed'),
+(131, 20260159, 17, 400000, '2026-01-01', 'listed'),
+(132, 20170283, 17, 400000, '2026-01-01', 'listed'),
+(133, 20260096, 18, 400000, '2026-01-01', 'listed'),
+(134, 20200089, 18, 350000, '2026-01-01', 'listed'),
+(135, 20260097, 18, 400000, '2026-01-01', 'listed'),
+(136, 20190291, 18, 450000, '2026-01-01', 'listed'),
+(137, 20160096, 18, 300000, '2026-01-01', 'listed'),
+(138, 20190139, 18, 400000, '2026-01-01', 'listed'),
+(139, 20260098, 18, 2000000, '2026-01-01', 'listed'),
+(140, 20160065, 18, 275000, '2026-01-01', 'listed'),
+(141, 20180125, 19, 325000, '2026-01-01', 'listed'),
+(142, 20160011, 19, 275000, '2026-01-01', 'listed'),
+(143, 20170175, 19, 275000, '2026-01-01', 'listed'),
+(144, 20230147, 19, 600000, '2026-01-01', 'listed'),
+(145, 20260146, 19, 450000, '2026-01-01', 'listed'),
+(146, 20250283, 19, 450000, '2026-01-01', 'listed'),
+(147, 20180111, 20, 275000, '2026-01-01', 'listed'),
+(148, 20260282, 20, 800000, '2026-01-01', 'listed'),
+(149, 20260206, 20, 300000, '2026-01-01', 'listed'),
+(150, 20110138, 20, 400000, '2026-01-01', 'listed'),
+(151, 20210152, 20, 375000, '2026-01-01', 'listed'),
+(152, 20140032, 20, 550000, '2026-01-01', 'listed'),
+(153, 20250350, 21, 400000, '2026-01-01', 'listed'),
+(154, 20180204, 21, 300000, '2026-01-01', 'listed'),
+(155, 20110157, 21, 300000, '2026-01-01', 'listed'),
+(156, 20210167, 21, 275000, '2026-01-01', 'listed'),
+(157, 20200056, 22, 325000, '2026-01-01', 'listed'),
+(158, 20100058, 22, 275000, '2026-01-01', 'listed'),
+(159, 20250232, 22, 400000, '2026-01-01', 'listed'),
+(160, 20190058, 22, 400000, '2026-01-01', 'listed'),
+(161, 20240245, 23, 550000, '2026-01-01', 'listed'),
+(162, 20260288, 24, 450000, '2026-01-01', 'listed'),
+(163, 20260117, 24, 350000, '2026-01-01', 'listed'),
+(164, 20170171, 25, 300000, '2026-01-01', 'listed'),
+(165, 20110158, 25, 375000, '2026-01-01', 'listed'),
+(166, 20260173, 26, 300000, '2026-01-01', 'listed'),
+(167, 20260195, 27, 700000, '2026-01-01', 'listed'),
+(168, 20200134, 28, 325000, '2026-01-01', 'listed'),
+(169, 20200079, 28, 300000, '2026-01-01', 'listed'),
+(170, 20260273, 29, 350000, '2026-01-01', 'listed'),
+(171, 20250345, 29, 500000, '2026-01-01', 'listed');
+
+UPDATE transfer_market
+SET asking_fee_krw = ROUND(asking_fee_krw * @krw_fx_rate, 2)
+WHERE asking_fee_krw < 50000000;
 
 INSERT INTO app_users (user_id, username, club_id) VALUES
 (1, 'manager_fc_seoul', 1),
@@ -4312,7 +4336,7 @@ BEGIN
         SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'User does not exist';
     END IF;
 
-    SELECT tm.player_id, tm.seller_club_id, tm.asking_fee_eur, tm.status, p.player_name, c.club_name
+    SELECT tm.player_id, tm.seller_club_id, tm.asking_fee_krw, tm.status, p.player_name, c.club_name
       INTO v_player_id, v_seller_club_id, v_fee, v_status, v_player_name, v_seller_club_name
     FROM transfer_market tm
     JOIN players p ON tm.player_id = p.player_id
@@ -4320,8 +4344,16 @@ BEGIN
     WHERE tm.listing_id = p_listing_id
     FOR UPDATE;
 
-    IF v_status <> 'available' THEN
-        SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Listing is not available';
+    IF v_player_id IS NULL THEN
+        SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Listing does not exist';
+    END IF;
+
+    IF v_status <> 'listed' THEN
+        SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Listing is not listed';
+    END IF;
+
+    IF v_fee <= 0 THEN
+        SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Listing fee must be positive';
     END IF;
 
     IF v_buyer_club_id = v_seller_club_id THEN
@@ -4336,7 +4368,7 @@ BEGIN
         SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Seller club must keep at least 11 players';
     END IF;
 
-    SELECT current_budget_eur INTO v_buyer_budget
+    SELECT current_budget_krw INTO v_buyer_budget
     FROM clubs
     WHERE club_id = v_buyer_club_id
     FOR UPDATE;
@@ -4358,7 +4390,7 @@ BEGIN
     SET status = 'expired'
     WHERE player_id = v_player_id AND status = 'active';
 
-    INSERT INTO contracts (player_id, club_id, start_date, end_date, salary_eur, status)
+    INSERT INTO contracts (player_id, club_id, start_date, end_date, salary_krw, status)
     VALUES (v_player_id, v_buyer_club_id, CURDATE(), DATE_ADD(CURDATE(), INTERVAL 2 YEAR), GREATEST(v_fee * 0.08, 20000), 'active');
 
     UPDATE players
@@ -4368,19 +4400,25 @@ BEGIN
     WHERE player_id = v_player_id;
 
     UPDATE clubs
-    SET current_budget_eur = current_budget_eur - v_fee
+    SET current_budget_krw = current_budget_krw - v_fee,
+        total_spent_krw = total_spent_krw + v_fee
     WHERE club_id = v_buyer_club_id;
 
     UPDATE clubs
-    SET current_budget_eur = current_budget_eur + v_fee
+    SET current_budget_krw = current_budget_krw + v_fee
     WHERE club_id = v_seller_club_id;
 
     UPDATE transfer_market
     SET status = 'sold'
-    WHERE listing_id = p_listing_id;
+    WHERE listing_id = p_listing_id
+      AND status = 'listed';
+
+    IF ROW_COUNT() = 0 THEN
+        SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Listing is not listed';
+    END IF;
 
     INSERT INTO transfer_history
-        (player_id, from_club_id, to_club_id, transfer_type, fee_eur, transfer_date, season_id, created_by_user_id, memo)
+        (player_id, from_club_id, to_club_id, transfer_type, fee_krw, transfer_date, season_id, created_by_user_id, memo)
     VALUES
         (v_player_id, v_seller_club_id, v_buyer_club_id, 'buy', v_fee, CURDATE(),
          v_active_season_id, p_user_id, 'Completed through sp_buy_player');
@@ -4393,7 +4431,7 @@ BEGIN
         v_player_name AS bought_player,
         v_seller_club_name AS seller_club,
         v_buyer_club_name AS buyer_club,
-        v_fee AS fee_eur,
+        v_fee AS fee_krw,
         v_seller_club_id AS from_club_id,
         v_buyer_club_id AS to_club_id;
 END$$
@@ -4467,11 +4505,11 @@ BEGIN
         v_result AS result;
 END$$
 
-CREATE PROCEDURE sp_list_player_for_transfer(IN p_user_id INT, IN p_player_id INT, IN p_asking_fee_eur DECIMAL(15,2))
+CREATE PROCEDURE sp_list_player_for_transfer(IN p_user_id INT, IN p_player_id INT, IN p_asking_fee_krw DECIMAL(15,2))
 BEGIN
     DECLARE v_user_club_id INT;
     DECLARE v_player_club_id INT;
-    DECLARE v_market_value_eur DECIMAL(15,2);
+    DECLARE v_market_value_krw DECIMAL(15,2);
 
     DECLARE EXIT HANDLER FOR SQLEXCEPTION
     BEGIN
@@ -4485,8 +4523,8 @@ BEGIN
     FROM app_users
     WHERE user_id = p_user_id;
 
-    SELECT club_id, market_value_eur
-      INTO v_player_club_id, v_market_value_eur
+    SELECT club_id, market_value_krw
+      INTO v_player_club_id, v_market_value_krw
     FROM players
     WHERE player_id = p_player_id;
 
@@ -4494,27 +4532,27 @@ BEGIN
         SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'User can list only own club players';
     END IF;
 
-    IF p_asking_fee_eur < 0 THEN
-        SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Asking fee cannot be negative';
+    IF p_asking_fee_krw <= 0 THEN
+        SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Asking fee must be greater than zero';
     END IF;
 
-    IF v_market_value_eur <= 0 THEN
+    IF v_market_value_krw <= 0 THEN
         SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Player has no confirmed Transfermarkt market value';
     END IF;
 
-    IF ABS(p_asking_fee_eur - v_market_value_eur) > 0.01 THEN
-        SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Asking fee must equal confirmed Transfermarkt market value';
+    IF ABS(p_asking_fee_krw - v_market_value_krw) > 0.01 THEN
+        SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Asking fee must equal confirmed Transfermarkt market value in KRW';
     END IF;
 
-    INSERT INTO transfer_market (player_id, seller_club_id, asking_fee_eur, listed_date, status)
-    VALUES (p_player_id, v_user_club_id, v_market_value_eur, CURDATE(), 'available');
+    INSERT INTO transfer_market (player_id, seller_club_id, asking_fee_krw, listed_date, status)
+    VALUES (p_player_id, v_user_club_id, v_market_value_krw, CURDATE(), 'listed');
 
     SET @app_user_id = NULL;
 
     SELECT 'LISTING_CREATED' AS result_code,
            LAST_INSERT_ID() AS listing_id,
            p_player_id AS player_id,
-           v_market_value_eur AS asking_fee_eur;
+           v_market_value_krw AS asking_fee_krw;
 END$$
 
 CREATE PROCEDURE sp_cancel_listing(IN p_user_id INT, IN p_listing_id INT)
@@ -4547,8 +4585,8 @@ BEGIN
         SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'User can cancel only own club listings';
     END IF;
 
-    IF v_status <> 'available' THEN
-        SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Only available listings can be cancelled';
+    IF v_status <> 'listed' THEN
+        SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Only listed listings can be cancelled';
     END IF;
 
     UPDATE transfer_market
@@ -4608,3 +4646,8 @@ BEGIN
 END$$
 
 DELIMITER ;
+
+
+
+
+

@@ -1,120 +1,78 @@
-# K League Transfer Simulator DB
+﻿# K League Transfer Simulator DB
 
-K League 구단 감독/운영자가 예산, 포메이션, 선수단 밸런스, 이적시장, 시즌 결과를 확인할 수 있는 MySQL 중심 스쿼드 운영 시뮬레이터입니다. Streamlit UI는 의사결정 화면을 담당하고, 영입/매물/시즌/감사 로그 같은 핵심 변경은 DB 테이블, 뷰, 트리거, 저장 프로시저가 처리합니다.
+K리그 구단 운영을 위한 DB 중심 프로젝트입니다. 선수 영입/방출, 이적시장, 예산, 이적 이력을 MySQL에서 관리하고 Streamlit UI로 확인합니다.
 
-## 핵심 기능
+## 발표/제출용 기능 요약
 
-- K League 공식 공개 페이지 기준 K League 1/2 29개 구단, active 선수 1,092명 반영
-- 선수단/기록/영문명은 K League 공식 데이터 사용
-- 선수 몸값은 Transfermarkt K League 1/2 market value 공개 데이터만 사용
-- Transfermarkt 200개 value 행 중 공식 영문명+구단 또는 유일한 구단/나이/국적/포지션 매칭으로 확인된 171명만 기본 이적시장 매물로 생성
-- 매칭되지 않은 선수는 임의 몸값을 만들지 않고 `market_value_eur = 0`, `NO_CONFIDENT_TRANSFERMARKT_MATCH`로 남김
-- 요구 이적료는 Transfermarkt market value와 동일하게 저장하고, UI에서는 `1 EUR = 1,761.3 KRW`로 원화 환산 표시
-- 구단별 예산, 스쿼드 점수, 포지션 뎁스, 약점 분석, 데이터 기반 영입 추천
-- 포메이션별 11명 배치와 후보 상위 7명만 낮은 비중으로 반영하는 전력 계산
-- 영입 시 판매 구단이 최소 11명을 유지해야 하며, 배틀도 양 팀 모두 최소 11명 이상일 때만 가능
-- 영입, 계약 변경, 예산 변경, 매물 상태 변경은 트랜잭션과 감사 로그로 추적
+주제: **K리그 구단 운영 카드형 선수 이적 관리 DB**
 
-## 프로젝트 구성
+- 사용자/구단 선택 후 이적시장 선수 조회
+- 예산 기반 선수 구매 처리
+- 구매 시 이적 기록 자동 저장
+- 트랜잭션 기반 DB 처리로 일관성 보장
+- 예산 부족/중복 구매/없는 listing 차단
+- KRW 단위 통일 및 검증 쿼리 제공
 
-```text
-Database-project/
-├─ kleague_app.py                 # Streamlit UI
-├─ kleague_full_setup.sql         # DB 전체 생성 및 초기 데이터 입력
-├─ kleague_ddl.sql                # 테이블, 뷰, 트리거
-├─ kleague_dml.sql                # 초기 데이터
-├─ kleague_dml_kor.sql            # 동일 초기 데이터 별칭
-├─ kleague_procedures.sql         # 영입/배틀/시즌 저장 프로시저
-├─ requirements.txt
-├─ scripts/
-│  └─ rebuild_kleague_dataset.py  # K League + Transfermarkt 데이터 재수집 및 SQL 재생성
-├─ data/
-│  ├─ cleaned_players.csv
-│  ├─ transfermarkt_values.csv
-│  └─ ...
-└─ docs/
-   ├─ ERD.mmd
-   ├─ presentation_script.md
-   └─ verification_queries.sql
-```
+## 금액 단위 정책
 
-## 실행 방법
+본 시스템의 예산은 실제 구단 회계자료가 아니라, 게임 밸런스와 구단 규모를 반영해 설정한 시뮬레이션용 이적 예산입니다.  
+모든 예산, 선수 가치, 이적료, 계약 금액은 **KRW(원화) 기준**으로 저장합니다.  
+화면에서는 가독성을 위해 `원` 표기와 `억 원` 표기를 함께 사용합니다.
 
-MySQL에서 데이터베이스를 먼저 생성합니다.
+참고:
+- `data/*.csv` 산출물은 이미 KRW 값입니다.
+- 다만 SQL 시드(`kleague_dml.sql`, `kleague_dml_kor.sql`, `kleague_full_setup.sql`)의 원본 숫자 리터럴은 과거 EUR 스케일 스냅샷을 유지하고 있어, 로딩 시점에 `@krw_fx_rate`로 1회 KRW 변환을 수행합니다.
+- 따라서 DB에 실제 저장되는 값은 KRW이며, 환산은 import 과정에서만 적용됩니다.
+
+## 핵심 규칙
+
+- `clubs.initial_budget_krw`, `clubs.current_budget_krw`, `clubs.total_spent_krw` 사용
+- `players.market_value_krw` 사용
+- `transfer_market.asking_fee_krw` 사용
+- `transfer_history.fee_krw` 사용
+- 이적시장 상태는 `listed`, `sold`, `cancelled`로 관리
+- 구매 가능한 매물은 `status = 'listed'`만 조회
+
+## 실행 순서 (제출/시연)
+
+1. MySQL에서 `kleague_full_setup.sql` 실행
+2. 터미널에서 `streamlit run kleague_app.py` 실행
+3. 사용자 선택
+4. 구단 선택
+5. 선수 구매
+6. 예산/이적 기록 확인
+
+예시:
 
 ```bash
 mysql -u root -p < kleague_full_setup.sql
-```
-
-Python 패키지를 설치하고 Streamlit을 실행합니다.
-
-```bash
-pip install -r requirements.txt
-set MYSQL_PASSWORD=본인비밀번호
 streamlit run kleague_app.py
 ```
 
-`kleague_app.py`는 기본값으로 `root / 빈 비밀번호 / kleague_db`를 사용합니다. 환경변수 `MYSQL_HOST`, `MYSQL_PORT`, `MYSQL_USER`, `MYSQL_PASSWORD`, `MYSQL_DATABASE`로 변경할 수 있습니다.
+## 주요 검증
 
-## 데이터 기준
-
-| 구분 | 내용 |
-|---|---|
-| K League 공식 | active 선수 명단, 선수 상세, 영문명, 구단, 포지션, 배번, 키/몸무게, 2026 공개 기록 |
-| Transfermarkt | K League 1/2 market value, 선수 영문명, 구단, 나이, 국적, 포지션 |
-| 매칭 방식 | 1순위 공식 영문명+구단, 2순위 유일한 구단/나이/국적/포지션 |
-| 기본 매물 | Transfermarkt value가 확실히 매칭된 171명만 생성 |
-| 미매칭 선수 | 임의 산정 금지. 몸값 0으로 유지하고 기본 이적시장에는 노출하지 않음 |
-
-## 전력 계산 원칙
-
-후보 선수가 많은 팀이 무조건 유리해지는 문제를 줄이기 위해 전체 평균을 그대로 쓰지 않습니다.
-
-```text
-스쿼드 점수 =
-주전 상위 11명 평균 82%
-+ 감독 능력치 14%
-+ 후보 상위 7명 평균 2%
-```
-
-포메이션 배틀은 선택된 11명과 실제 슬롯을 기준으로 계산하고, 양 팀 모두 등록 선수가 11명 이상일 때만 저장됩니다.
-
-## 추천 점수 계산
-
-`v_transfer_recommendations`는 다음 요소를 조합해 구단별 영입 후보를 정렬합니다.
-
-```text
-추천 점수 =
-선수 오버롤
-+ 포지션 약점 보정
-+ 예산 적합도
-+ Transfermarkt 몸값 대비 이적료 효율
-+ 어린 선수 성장 보너스
-- 고령 선수 감점
-```
-
-요구 이적료는 기본 매물 기준으로 Transfermarkt market value와 동일하므로, 추천의 핵심은 포지션 약점과 예산 적합도입니다.
-
-## 검증 쿼리
+검증 쿼리는 `docs/verification_queries.sql`에 정리되어 있습니다.
 
 ```sql
-USE kleague_db;
-
-SELECT COUNT(*) AS clubs FROM clubs;
-SELECT COUNT(*) AS players FROM players;
-SELECT COUNT(*) AS market_listings FROM transfer_market WHERE status = 'available';
-
-SELECT p.player_name, c.club_name, p.market_value_eur, p.value_source_url
-FROM players p
-JOIN clubs c ON c.club_id = p.club_id
-WHERE p.market_value_eur > 0
-ORDER BY p.market_value_eur DESC
-LIMIT 20;
-
-SELECT tm.asking_fee_eur, p.market_value_eur
-FROM transfer_market tm
-JOIN players p ON p.player_id = tm.player_id
-WHERE tm.asking_fee_eur <> p.market_value_eur;
+SOURCE docs/verification_queries.sql;
 ```
 
-마지막 쿼리가 빈 결과이면 기본 매물 요구 이적료가 Transfermarkt value와 동일하게 들어간 상태입니다.
+포함된 검증 항목:
+
+- 정상 구매
+- 예산 부족 구매 실패
+- 이미 판매된 선수 재구매 실패
+- 없는 listing 구매 실패
+- 구매 후 선수 소속 변경
+- 구매 후 예산 차감
+- 구매 후 `transfer_history` 기록
+- 구매 후 `transfer_market.status = 'sold'`
+
+## 프로젝트 파일
+
+- `kleague_full_setup.sql`: DB 전체 생성 + 초기 데이터 + 뷰 + 프로시저
+- `kleague_ddl.sql`: DDL/뷰/트리거
+- `kleague_dml.sql`, `kleague_dml_kor.sql`: 초기 데이터
+- `kleague_procedures.sql`: 주요 저장 프로시저
+- `kleague_app.py`: Streamlit 앱
+- `docs/verification_queries.sql`: 검증 쿼리

@@ -1,30 +1,30 @@
-club_id,source_team_id,league_id,league_name,club_name,city,founded_year,stadium_name,stadium_capacity,initial_budget_eur,current_budget_eur,club_homepage,data_source_url
-1,K09,1,K League 1,FC Seoul,Seoul,1983,Seoul World Cup Stadium,66704,16000000,16000000,https://www.fcseoul.com/,https://www.kleague.com/player.do?leagueId=1&teamId=K09&type=active
-2,K01,1,K League 1,Ulsan HD FC,Ulsan,1983,Ulsan Munsu Football Stadium,44102,17500000,17500000,https://www.uhdfc.com/,https://www.kleague.com/player.do?leagueId=1&teamId=K01&type=active
-3,K05,1,K League 1,Jeonbuk Hyundai Motors,Jeonju,1994,Jeonju World Cup Stadium,42477,18000000,18000000,https://www.hyundai-motorsfc.com,https://www.kleague.com/player.do?leagueId=1&teamId=K05&type=active
-4,K21,1,K League 1,Gangwon FC,Gangneung,2008,Gangneung Stadium,22333,11500000,11500000,https://www.gangwon-fc.com,https://www.kleague.com/player.do?leagueId=1&teamId=K21&type=active
-5,K03,1,K League 1,Pohang Steelers,Pohang,1973,Pohang Steel Yard,17443,13000000,13000000,https://www.steelers.co.kr,https://www.kleague.com/player.do?leagueId=1&teamId=K03&type=active
-6,K18,1,K League 1,Incheon United,Incheon,2003,Incheon Football Stadium,20891,9500000,9500000,https://www.incheonutd.com,https://www.kleague.com/player.do?leagueId=1&teamId=K18&type=active
-7,K27,1,K League 1,FC Anyang,Anyang,2013,Anyang Sports Complex,17143,8500000,8500000,https://www.fc-anyang.com,https://www.kleague.com/player.do?leagueId=1&teamId=K27&type=active
-8,K04,1,K League 1,Jeju SK,Seogwipo,1982,Jeju World Cup Stadium,29791,12000000,12000000,https://www.jejuskfc.com/,https://www.kleague.com/player.do?leagueId=1&teamId=K04&type=active
-9,K26,1,K League 1,Bucheon FC 1995,Bucheon,2007,Bucheon Stadium,34456,8500000,8500000,https://www.bfc1995.com,https://www.kleague.com/player.do?leagueId=1&teamId=K26&type=active
-10,K10,1,K League 1,Daejeon Hana Citizen,Daejeon,1997,Daejeon World Cup Stadium,40903,14500000,14500000,https://www.dhcfc.kr/,https://www.kleague.com/player.do?leagueId=1&teamId=K10&type=active
-11,K35,1,K League 1,Gimcheon Sangmu,Gimcheon,2021,Gimcheon Sports Complex,25000,10000000,10000000,https://gimcheonfc.com/,https://www.kleague.com/player.do?leagueId=1&teamId=K35&type=active
-12,K22,1,K League 1,Gwangju FC,Gwangju,2010,Gwangju Football Stadium,10007,9000000,9000000,https://www.gwangjufc.com/,https://www.kleague.com/player.do?leagueId=1&teamId=K22&type=active
-13,K06,2,K League 2,Busan IPark,Busan,1979,Busan Asiad Main Stadium,53769,8200000,8200000,https://www.busanipark.com,https://www.kleague.com/player.do?leagueId=2&teamId=K06&type=active
-14,K02,2,K League 2,Suwon Samsung Bluewings,Suwon,1995,Suwon World Cup Stadium,43288,10000000,10000000,https://www.bluewings.kr/,https://www.kleague.com/player.do?leagueId=2&teamId=K02&type=active
-15,K31,2,K League 2,Seoul E-Land FC,Seoul,2014,Mokdong Stadium,15511,7600000,7600000,https://www.seoulelandfc.com,https://www.kleague.com/player.do?leagueId=2&teamId=K31&type=active
-16,K39,2,K League 2,Hwaseong FC,Hwaseong,2013,Hwaseong Sports Complex,35265,6200000,6200000,https://www.hwaseongfc.com/,https://www.kleague.com/player.do?leagueId=2&teamId=K39&type=active
-17,K17,2,K League 2,Daegu FC,Daegu,2002,DGB Daegu Bank Park,12419,9000000,9000000,https://daegufc.co.kr,https://www.kleague.com/player.do?leagueId=2&teamId=K17&type=active
-18,K29,2,K League 2,Suwon FC,Suwon,2003,Suwon Sports Complex,11808,7800000,7800000,https://www.suwonfc.com,https://www.kleague.com/player.do?leagueId=2&teamId=K29&type=active
-19,K36,2,K League 2,Gimpo FC,Gimpo,2013,Gimpo Salter Soccer Field,5076,5800000,5800000,https://www.gimpofc.com,https://www.kleague.com/player.do?leagueId=2&teamId=K36&type=active
-20,K34,2,K League 2,Chungnam Asan FC,Asan,2020,Yi Sun-sin Stadium,19283,6000000,6000000,https://www.asanfc.com,https://www.kleague.com/player.do?leagueId=2&teamId=K34&type=active
-21,K20,2,K League 2,Gyeongnam FC,Changwon,2006,Changwon Football Center,15071,6500000,6500000,http://www.gyeongnamfc.com,https://www.kleague.com/player.do?leagueId=2&teamId=K20&type=active
-22,K08,2,K League 2,Seongnam FC,Seongnam,1989,Tancheon Sports Complex,16146,6800000,6800000,https://seongnamfc.com/,https://www.kleague.com/player.do?leagueId=2&teamId=K08&type=active
-23,K38,2,K League 2,Cheonan City FC,Cheonan,2008,Cheonan Stadium,26000,5600000,5600000,https://cheonancityfc.kr/,https://www.kleague.com/player.do?leagueId=2&teamId=K38&type=active
-24,K40,2,K League 2,Paju Citizen FC,Paju,2012,Paju Stadium,23000,5200000,5200000,https://fc.pajusports.co.kr/,https://www.kleague.com/player.do?leagueId=2&teamId=K40&type=active
-25,K42,2,K League 2,Yongin City FC,Yongin,2010,Yongin Mireu Stadium,37155,5200000,5200000,https://www.yonginfc.co.kr/,https://www.kleague.com/player.do?leagueId=2&teamId=K42&type=active
-26,K32,2,K League 2,Ansan Greeners,Ansan,2017,Ansan Wa Stadium,35000,5400000,5400000,https://www.greenersfc.com/,https://www.kleague.com/player.do?leagueId=2&teamId=K32&type=active
-27,K37,2,K League 2,Chungbuk Cheongju FC,Cheongju,2002,Cheongju Stadium,16280,5600000,5600000,https://chfc.kr/,https://www.kleague.com/player.do?leagueId=2&teamId=K37&type=active
-28,K07,2,K League 2,Jeonnam Dragons,Gwangyang,1994,Gwangyang Football Stadium,13496,7000000,7000000,https://www.dragons.co.kr,https://www.kleague.com/player.do?leagueId=2&teamId=K07&type=active
-29,K41,2,K League 2,Gimhae FC,Gimhae,2008,Gimhae Stadium,30000,5200000,5200000,https://gimhaefc2008.com/,https://www.kleague.com/player.do?leagueId=2&teamId=K41&type=active
+club_id,source_team_id,league_id,league_name,club_name,city,founded_year,stadium_name,stadium_capacity,initial_budget_krw,current_budget_krw,club_homepage,data_source_url
+1,K09,1,K League 1,FC Seoul,Seoul,1983,Seoul World Cup Stadium,66704,24000000000,24000000000,https://www.fcseoul.com/,https://www.kleague.com/player.do?leagueId=1&teamId=K09&type=active
+2,K01,1,K League 1,Ulsan HD FC,Ulsan,1983,Ulsan Munsu Football Stadium,44102,26250000000,26250000000,https://www.uhdfc.com/,https://www.kleague.com/player.do?leagueId=1&teamId=K01&type=active
+3,K05,1,K League 1,Jeonbuk Hyundai Motors,Jeonju,1994,Jeonju World Cup Stadium,42477,27000000000,27000000000,https://www.hyundai-motorsfc.com,https://www.kleague.com/player.do?leagueId=1&teamId=K05&type=active
+4,K21,1,K League 1,Gangwon FC,Gangneung,2008,Gangneung Stadium,22333,17250000000,17250000000,https://www.gangwon-fc.com,https://www.kleague.com/player.do?leagueId=1&teamId=K21&type=active
+5,K03,1,K League 1,Pohang Steelers,Pohang,1973,Pohang Steel Yard,17443,19500000000,19500000000,https://www.steelers.co.kr,https://www.kleague.com/player.do?leagueId=1&teamId=K03&type=active
+6,K18,1,K League 1,Incheon United,Incheon,2003,Incheon Football Stadium,20891,14250000000,14250000000,https://www.incheonutd.com,https://www.kleague.com/player.do?leagueId=1&teamId=K18&type=active
+7,K27,1,K League 1,FC Anyang,Anyang,2013,Anyang Sports Complex,17143,12750000000,12750000000,https://www.fc-anyang.com,https://www.kleague.com/player.do?leagueId=1&teamId=K27&type=active
+8,K04,1,K League 1,Jeju SK,Seogwipo,1982,Jeju World Cup Stadium,29791,18000000000,18000000000,https://www.jejuskfc.com/,https://www.kleague.com/player.do?leagueId=1&teamId=K04&type=active
+9,K26,1,K League 1,Bucheon FC 1995,Bucheon,2007,Bucheon Stadium,34456,12750000000,12750000000,https://www.bfc1995.com,https://www.kleague.com/player.do?leagueId=1&teamId=K26&type=active
+10,K10,1,K League 1,Daejeon Hana Citizen,Daejeon,1997,Daejeon World Cup Stadium,40903,21750000000,21750000000,https://www.dhcfc.kr/,https://www.kleague.com/player.do?leagueId=1&teamId=K10&type=active
+11,K35,1,K League 1,Gimcheon Sangmu,Gimcheon,2021,Gimcheon Sports Complex,25000,15000000000,15000000000,https://gimcheonfc.com/,https://www.kleague.com/player.do?leagueId=1&teamId=K35&type=active
+12,K22,1,K League 1,Gwangju FC,Gwangju,2010,Gwangju Football Stadium,10007,13500000000,13500000000,https://www.gwangjufc.com/,https://www.kleague.com/player.do?leagueId=1&teamId=K22&type=active
+13,K06,2,K League 2,Busan IPark,Busan,1979,Busan Asiad Main Stadium,53769,12300000000,12300000000,https://www.busanipark.com,https://www.kleague.com/player.do?leagueId=2&teamId=K06&type=active
+14,K02,2,K League 2,Suwon Samsung Bluewings,Suwon,1995,Suwon World Cup Stadium,43288,15000000000,15000000000,https://www.bluewings.kr/,https://www.kleague.com/player.do?leagueId=2&teamId=K02&type=active
+15,K31,2,K League 2,Seoul E-Land FC,Seoul,2014,Mokdong Stadium,15511,11400000000,11400000000,https://www.seoulelandfc.com,https://www.kleague.com/player.do?leagueId=2&teamId=K31&type=active
+16,K39,2,K League 2,Hwaseong FC,Hwaseong,2013,Hwaseong Sports Complex,35265,9300000000,9300000000,https://www.hwaseongfc.com/,https://www.kleague.com/player.do?leagueId=2&teamId=K39&type=active
+17,K17,2,K League 2,Daegu FC,Daegu,2002,DGB Daegu Bank Park,12419,13500000000,13500000000,https://daegufc.co.kr,https://www.kleague.com/player.do?leagueId=2&teamId=K17&type=active
+18,K29,2,K League 2,Suwon FC,Suwon,2003,Suwon Sports Complex,11808,11700000000,11700000000,https://www.suwonfc.com,https://www.kleague.com/player.do?leagueId=2&teamId=K29&type=active
+19,K36,2,K League 2,Gimpo FC,Gimpo,2013,Gimpo Salter Soccer Field,5076,8700000000,8700000000,https://www.gimpofc.com,https://www.kleague.com/player.do?leagueId=2&teamId=K36&type=active
+20,K34,2,K League 2,Chungnam Asan FC,Asan,2020,Yi Sun-sin Stadium,19283,9000000000,9000000000,https://www.asanfc.com,https://www.kleague.com/player.do?leagueId=2&teamId=K34&type=active
+21,K20,2,K League 2,Gyeongnam FC,Changwon,2006,Changwon Football Center,15071,9750000000,9750000000,http://www.gyeongnamfc.com,https://www.kleague.com/player.do?leagueId=2&teamId=K20&type=active
+22,K08,2,K League 2,Seongnam FC,Seongnam,1989,Tancheon Sports Complex,16146,10200000000,10200000000,https://seongnamfc.com/,https://www.kleague.com/player.do?leagueId=2&teamId=K08&type=active
+23,K38,2,K League 2,Cheonan City FC,Cheonan,2008,Cheonan Stadium,26000,8400000000,8400000000,https://cheonancityfc.kr/,https://www.kleague.com/player.do?leagueId=2&teamId=K38&type=active
+24,K40,2,K League 2,Paju Citizen FC,Paju,2012,Paju Stadium,23000,7800000000,7800000000,https://fc.pajusports.co.kr/,https://www.kleague.com/player.do?leagueId=2&teamId=K40&type=active
+25,K42,2,K League 2,Yongin City FC,Yongin,2010,Yongin Mireu Stadium,37155,7800000000,7800000000,https://www.yonginfc.co.kr/,https://www.kleague.com/player.do?leagueId=2&teamId=K42&type=active
+26,K32,2,K League 2,Ansan Greeners,Ansan,2017,Ansan Wa Stadium,35000,8100000000,8100000000,https://www.greenersfc.com/,https://www.kleague.com/player.do?leagueId=2&teamId=K32&type=active
+27,K37,2,K League 2,Chungbuk Cheongju FC,Cheongju,2002,Cheongju Stadium,16280,8400000000,8400000000,https://chfc.kr/,https://www.kleague.com/player.do?leagueId=2&teamId=K37&type=active
+28,K07,2,K League 2,Jeonnam Dragons,Gwangyang,1994,Gwangyang Football Stadium,13496,10500000000,10500000000,https://www.dragons.co.kr,https://www.kleague.com/player.do?leagueId=2&teamId=K07&type=active
+29,K41,2,K League 2,Gimhae FC,Gimhae,2008,Gimhae Stadium,30000,7800000000,7800000000,https://gimhaefc2008.com/,https://www.kleague.com/player.do?leagueId=2&teamId=K41&type=active

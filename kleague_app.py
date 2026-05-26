@@ -1,4 +1,4 @@
-import html
+﻿import html
 import os
 import warnings
 import pandas as pd
@@ -6,8 +6,6 @@ import pymysql
 import streamlit as st
 import streamlit.components.v1 as components
 
-
-EUR_TO_KRW = 1761.3
 
 warnings.filterwarnings(
     "ignore",
@@ -19,7 +17,7 @@ DB_CONFIG = {
     "host": os.getenv("MYSQL_HOST", "localhost"),
     "port": int(os.getenv("MYSQL_PORT", "3306")),
     "user": os.getenv("MYSQL_USER", "root"),
-    "password": os.getenv("MYSQL_PASSWORD", ""),
+    "password": os.getenv("MYSQL_PASSWORD", "1234"),
     "database": os.getenv("MYSQL_DATABASE", "kleague_db"),
     "charset": "utf8mb4",
     "cursorclass": pymysql.cursors.Cursor,
@@ -37,15 +35,15 @@ COLUMN_MAPPING = {
     "bench_count": "후보 수",
     "manager_rating": "감독 능력치",
     "squad_score": "스쿼드 점수",
-    "initial_budget_eur": "초기 예산 (원)",
-    "current_budget_eur": "현재 예산 (원)",
-    "total_spent_eur": "총 지출 (원)",
+    "initial_budget_krw": "초기 예산 (원)",
+    "current_budget_krw": "현재 예산 (원)",
+    "total_spent_krw": "총 지출 (원)",
     "position_group": "포지션 그룹",
     "avg_overall": "평균 오버롤",
     "player_name": "선수명",
     "primary_position": "주포지션",
     "nationality": "국적",
-    "market_value_eur": "Transfermarkt 몸값 (원)",
+    "market_value_krw": "Transfermarkt 몸값 (KRW 환산)",
     "appearances": "출전 횟수",
     "starts_estimated": "선발 추정",
     "goals": "득점",
@@ -60,14 +58,14 @@ COLUMN_MAPPING = {
     "physical": "피지컬",
     "overall": "오버롤",
     "seller_club": "판매 구단",
-    "asking_fee_eur": "요구 이적료 (원)",
+    "asking_fee_krw": "요구 이적료 (원)",
     "bought_player": "영입 선수",
     "buyer_club": "영입 구단",
     "transfer_id": "이적 ID",
     "from_club": "이전 구단",
     "to_club": "이적 구단",
     "transfer_type": "이적 형태",
-    "fee_eur": "이적료 (원)",
+    "fee_krw": "이적료 (원)",
     "transfer_date": "이적일",
     "memo": "비고",
     "battle_id": "배틀 ID",
@@ -191,6 +189,8 @@ def load_demo_tables():
     contracts = pd.read_csv(os.path.join(data_dir, "contracts.csv"))
     market = pd.read_csv(os.path.join(data_dir, "transfer_market.csv"))
     users = pd.read_csv(os.path.join(data_dir, "app_users.csv"))
+
+    clubs["total_spent_krw"] = clubs["initial_budget_krw"] - clubs["current_budget_krw"]
     managers_path = os.path.join(data_dir, "managers.csv")
     if os.path.exists(managers_path):
         managers = pd.read_csv(managers_path)
@@ -211,8 +211,8 @@ def load_demo_tables():
         "club_id", "player_id", "original_club_id", "manager_id", "contract_id", "listing_id", "seller_club_id",
         "user_id", "season_id", "transfer_id", "battle_id", "home_club_id", "away_club_id",
         "age", "appearances", "starts_estimated", "goals", "assists", "shots", "yellow_cards", "red_cards",
-        "pace", "shooting", "passing", "defending", "physical", "overall", "market_value_eur",
-        "asking_fee_eur", "salary_eur", "initial_budget_eur", "current_budget_eur", "rating"
+        "pace", "shooting", "passing", "defending", "physical", "overall", "market_value_krw",
+        "asking_fee_krw", "salary_krw", "initial_budget_krw", "current_budget_krw", "rating"
     }
     for df in [clubs, players, stats, contracts, market, users, managers]:
         for col in df.columns:
@@ -232,7 +232,7 @@ def load_demo_tables():
         "transfer_market": market,
         "app_users": users,
         "managers": managers,
-        "transfer_history": pd.DataFrame(columns=["transfer_id", "season_name", "player_name", "from_club", "to_club", "transfer_type", "fee_eur", "transfer_date", "memo"]),
+        "transfer_history": pd.DataFrame(columns=["transfer_id", "season_name", "player_name", "from_club", "to_club", "transfer_type", "fee_krw", "transfer_date", "memo"]),
         "squad_battles": pd.DataFrame(columns=["battle_id", "season_name", "home_club_id", "away_club_id", "home_club", "away_club", "home_score", "away_score", "result", "battle_date"]),
         "seasons": pd.DataFrame([{"season_id": 1, "season_name": "2026", "start_date": "2026-01-01", "end_date": None, "status": "active"}]),
         "audit_logs": pd.DataFrame(columns=["audit_id", "changed_at", "changed_by", "table_name", "action_type", "record_id", "note", "old_value", "new_value"]),
@@ -283,8 +283,8 @@ def demo_squad_score(tables):
 
 def demo_transfer_market(tables):
     market = tables["transfer_market"]
-    available = market[market["status"] == "available"].copy()
-    players = tables["players"][["player_id", "player_name", "position_group", "primary_position", "nationality", "age", "market_value_eur"]]
+    available = market[market["status"] == "listed"].copy()
+    players = tables["players"][["player_id", "player_name", "position_group", "primary_position", "nationality", "age", "market_value_krw"]]
     stats = tables["player_stats"][["player_id", "overall"]]
     clubs = tables["clubs"][["club_id", "club_name"]].rename(columns={"club_id": "seller_club_id", "club_name": "seller_club"})
     return (
@@ -327,7 +327,7 @@ def demo_position_gap(tables):
 
 
 def demo_recommendations(tables):
-    clubs = tables["clubs"][["club_id", "club_name", "current_budget_eur"]]
+    clubs = tables["clubs"][["club_id", "club_name", "current_budget_krw"]]
     market = demo_transfer_market(tables)
     gap = demo_position_gap(tables)
     rows = []
@@ -338,16 +338,16 @@ def demo_recommendations(tables):
                 continue
             gap_row = buyer_gap[buyer_gap["position_group"] == player.position_group].iloc[0]
             weakness = max(float(gap_row["weakness_gap"]), 0)
-            fee = float(player.asking_fee_eur)
-            market_value = float(player.market_value_eur)
+            fee = float(player.asking_fee_krw)
+            market_value_krw = float(player.market_value_krw)
             score = (
                 float(player.overall) * 0.45
                 + min(weakness, 12) * 2.8
-                + (12 if fee <= float(buyer.current_budget_eur) else -80)
-                + ((10 if fee == 0 else min(market_value / fee, 1.8) * 8))
+                + (12 if fee <= float(buyer.current_budget_krw) else -80)
+                + ((10 if fee == 0 else min(market_value_krw / fee, 1.8) * 8))
                 + (6 if pd.notna(player.age) and int(player.age) <= 23 else -5 if pd.notna(player.age) and int(player.age) >= 34 else 0)
             )
-            reason = "예산 초과" if fee > float(buyer.current_budget_eur) else "약점 보강" if gap_row["need_level"] in ["urgent", "weak"] else "성장 가치" if pd.notna(player.age) and int(player.age) <= 23 else "전력 보강"
+            reason = "예산 초과" if fee > float(buyer.current_budget_krw) else "약점 보강" if gap_row["need_level"] in ["urgent", "weak"] else "성장 가치" if pd.notna(player.age) and int(player.age) <= 23 else "전력 보강"
             rows.append({
                 "buyer_club_id": buyer.club_id,
                 "buyer_club": buyer.club_name,
@@ -361,8 +361,8 @@ def demo_recommendations(tables):
                 "overall": player.overall,
                 "seller_club": player.seller_club,
                 "seller_club_id": player.seller_club_id,
-                "asking_fee_eur": player.asking_fee_eur,
-                "current_budget_eur": buyer.current_budget_eur,
+                "asking_fee_krw": player.asking_fee_krw,
+                "current_budget_krw": buyer.current_budget_krw,
                 "current_position_players": gap_row["player_count"],
                 "current_position_avg": gap_row["avg_overall"],
                 "league_avg_overall": gap_row["league_avg_overall"],
@@ -381,14 +381,14 @@ def demo_query(sql, params=None):
 
     if "from app_users" in normalized and "join clubs" in normalized:
         users = tables["app_users"]
-        clubs = tables["clubs"][["club_id", "club_name", "current_budget_eur"]]
+        clubs = tables["clubs"][["club_id", "club_name", "current_budget_krw"]]
         return users.merge(clubs, on="club_id", how="left").sort_values("club_name").reset_index(drop=True)
 
     if "(select count(*) from clubs)" in normalized:
         return pd.DataFrame([{
             "club_count": len(tables["clubs"]),
             "registered_players": int(tables["players"]["club_id"].notna().sum()),
-            "available_listings": int((tables["transfer_market"]["status"] == "available").sum()),
+            "listed_listings": int((tables["transfer_market"]["status"] == "listed").sum()),
             "battle_count": len(tables["squad_battles"]),
         }])
 
@@ -397,9 +397,8 @@ def demo_query(sql, params=None):
         return df.sort_values("squad_score", ascending=False).reset_index(drop=True)
 
     if "from v_club_budget" in normalized:
-        df = tables["clubs"][["club_id", "club_name", "initial_budget_eur", "current_budget_eur"]].copy()
-        df["total_spent_eur"] = df["initial_budget_eur"] - df["current_budget_eur"]
-        return df.sort_values("current_budget_eur", ascending=False).reset_index(drop=True)
+        df = tables["clubs"][["club_id", "club_name", "initial_budget_krw", "current_budget_krw", "total_spent_krw"]].copy()
+        return df.sort_values("current_budget_krw", ascending=False).reset_index(drop=True)
 
     if "from v_position_depth" in normalized:
         info = demo_player_info(tables)
@@ -420,9 +419,9 @@ def demo_query(sql, params=None):
         df = demo_recommendations(tables)
         if params:
             df = df[df["buyer_club_id"] == int(params[0])]
-        if "asking_fee_eur <= current_budget_eur" in normalized:
-            df = df[df["asking_fee_eur"] <= df["current_budget_eur"]]
-        return df.sort_values(["recommendation_score", "overall", "asking_fee_eur"], ascending=[False, False, True]).head(12 if "limit 12" in normalized else len(df)).reset_index(drop=True)
+        if "asking_fee_krw <= current_budget_krw" in normalized:
+            df = df[df["asking_fee_krw"] <= df["current_budget_krw"]]
+        return df.sort_values(["recommendation_score", "overall", "asking_fee_krw"], ascending=[False, False, True]).head(12 if "limit 12" in normalized else len(df)).reset_index(drop=True)
 
     if "select preferred_formation" in normalized and "from managers" in normalized:
         df = tables["managers"]
@@ -447,10 +446,10 @@ def demo_query(sql, params=None):
         if params:
             df = df[df["club_id"] == int(params[0])]
             if "not exists" in normalized:
-                listed = tables["transfer_market"][tables["transfer_market"]["status"] == "available"]["player_id"]
+                listed = tables["transfer_market"][tables["transfer_market"]["status"] == "listed"]["player_id"]
                 df = df[~df["player_id"].isin(listed)]
-        if "p.market_value_eur > 0" in normalized:
-            df = df[df["market_value_eur"] > 0]
+        if "p.market_value_krw > 0" in normalized:
+            df = df[df["market_value_krw"] > 0]
         return df.sort_values(["position_group", "overall", "player_name"], ascending=[True, False, True]).reset_index(drop=True)
 
     if "from v_transfer_market" in normalized:
@@ -467,7 +466,7 @@ def demo_query(sql, params=None):
                 df = df[df["seller_club_id"] != int(params[1])]
         elif params:
             df = df[df["seller_club_id"] == int(params[0])]
-        return df.sort_values(["overall", "asking_fee_eur"], ascending=[False, True]).reset_index(drop=True)
+        return df.sort_values(["overall", "asking_fee_krw"], ascending=[False, True]).reset_index(drop=True)
 
     if "from clubs" in normalized and "where club_id <> %s" in normalized:
         df = tables["clubs"][["club_id", "club_name"]]
@@ -606,32 +605,33 @@ def reset_simulation_data():
 
             cur.execute("""
                 INSERT INTO transfer_market
-                    (player_id, seller_club_id, asking_fee_eur, listed_date, status)
+                    (player_id, seller_club_id, asking_fee_krw, listed_date, status)
                 SELECT p.player_id,
                        p.original_club_id,
-                       p.market_value_eur,
+                       p.market_value_krw,
                        '2026-01-01',
-                       'available'
+                       'listed'
                 FROM players p
                 WHERE p.original_club_id IS NOT NULL
-                  AND p.market_value_eur > 0
+                  AND p.market_value_krw > 0
             """)
 
             cur.execute("""
                 UPDATE clubs
-                SET current_budget_eur = initial_budget_eur
+                SET current_budget_krw = initial_budget_krw,
+                    total_spent_krw = 0
             """)
 
             cur.execute("DELETE FROM contracts")
 
             cur.execute("""
                 INSERT INTO contracts
-                    (player_id, club_id, start_date, end_date, salary_eur, status)
+                    (player_id, club_id, start_date, end_date, salary_krw, status)
                 SELECT p.player_id,
                        p.original_club_id,
                        '2026-01-01',
                        '2028-01-01',
-                       GREATEST(p.market_value_eur * 0.08, 20000),
+                       GREATEST(ROUND(p.market_value_krw * 0.08, 2), 20000),
                        'active'
                 FROM players p
                 WHERE p.original_club_id IS NOT NULL
@@ -946,19 +946,16 @@ def save_squad_battle(home_club_id, away_club_id, home_score, away_score, home_s
     return result_df.iloc[0]["result"], None
 
 
-def eur_to_krw(value):
-    return float(value or 0) * EUR_TO_KRW
+def format_krw(value):
+    amount = float(value or 0)
+    return f"{amount:,.0f}원"
 
 
-def format_krw_from_eur(value):
-    krw = eur_to_krw(value)
-    if krw >= 100_000_000:
-        return f"₩{krw:,.0f} ({krw / 100_000_000:.1f}억)"
-    return f"₩{krw:,.0f}"
-
-
-def format_eur(value):
-    return format_krw_from_eur(value)
+def format_krw_eok(value):
+    amount = float(value or 0)
+    sign = "-" if amount < 0 else ""
+    abs_amount = abs(amount)
+    return f"{sign}{abs_amount / 100_000_000:.1f}억 원"
 
 
 def prepare_display_df(df, drop_columns=None):
@@ -969,9 +966,16 @@ def prepare_display_df(df, drop_columns=None):
     if drop_columns:
         display_df = display_df.drop(columns=drop_columns, errors="ignore")
 
-    for column in ["initial_budget_eur", "current_budget_eur", "total_spent_eur", "market_value_eur", "asking_fee_eur", "fee_eur", "salary_eur"]:
+    krw_columns = ["initial_budget_krw", "current_budget_krw", "total_spent_krw", "asking_fee_krw", "fee_krw"]
+    for column in krw_columns:
         if column in display_df.columns:
-            display_df[column] = display_df[column].apply(format_krw_from_eur)
+            display_df[column] = display_df[column].apply(format_krw)
+
+    if "market_value_krw" in display_df.columns:
+        display_df["market_value_krw"] = display_df["market_value_krw"].apply(format_krw)
+
+    if "salary_krw" in display_df.columns:
+        display_df["salary_krw"] = display_df["salary_krw"].apply(format_krw)
 
     return display_df
 
@@ -1377,7 +1381,7 @@ def render_app_header(page, club_name, budget):
             </div>
             <div class="dbpbl-hero-chip">
                 <span>현재 예산</span>
-                <strong>{format_eur(budget)}</strong>
+                <strong>{format_krw_eok(budget)}</strong>
             </div>
             <div class="dbpbl-hero-chip">
                 <span>운영 규칙</span>
@@ -1414,7 +1418,7 @@ def render_player_card(title, row, fee=None):
 
     fee_html = ""
     if fee is not None:
-        fee_html = f'<span class="dbpbl-badge">{format_eur(fee)}</span>'
+        fee_html = f'<span class="dbpbl-badge">{format_krw_eok(fee)}</span>'
 
     recommendation_html = ""
     if "recommendation_score" in row and pd.notna(row.get("recommendation_score")):
@@ -1479,7 +1483,7 @@ try:
                u.username,
                c.club_id,
                c.club_name,
-               c.current_budget_eur
+               c.current_budget_krw
         FROM app_users u
         JOIN clubs c
             ON u.club_id = c.club_id
@@ -1573,7 +1577,7 @@ my_row = users_df[
 
 my_club_id = int(my_row["club_id"])
 my_club_name = my_row["club_name"]
-my_budget = float(my_row["current_budget_eur"])
+my_budget = float(my_row["current_budget_krw"])
 
 st.sidebar.markdown(f"""
 <div class="dbpbl-sidebar-card">
@@ -1582,7 +1586,7 @@ st.sidebar.markdown(f"""
 </div>
 <div class="dbpbl-sidebar-card">
     <span>현재 예산 (원)</span>
-    <strong class="dbpbl-budget">{format_krw_from_eur(my_budget)}</strong>
+    <strong class="dbpbl-budget">{format_krw(my_budget)}</strong>
 </div>
 """, unsafe_allow_html=True)
 
@@ -1615,7 +1619,7 @@ if page == "대시보드":
         SELECT
             (SELECT COUNT(*) FROM clubs) AS club_count,
             (SELECT COUNT(*) FROM players WHERE club_id IS NOT NULL) AS registered_players,
-            (SELECT COUNT(*) FROM transfer_market WHERE status = 'available') AS available_listings,
+            (SELECT COUNT(*) FROM transfer_market WHERE status = 'listed') AS listed_listings,
             (SELECT COUNT(*) FROM squad_battles) AS battle_count
     """)
     summary = summary_df.iloc[0]
@@ -1626,7 +1630,7 @@ if page == "대시보드":
     with stat_cols[1]:
         render_stat_card("등록 선수", f"{int(summary['registered_players'])}명", "소속 구단이 있는 선수")
     with stat_cols[2]:
-        render_stat_card("이적시장 매물", f"{int(summary['available_listings'])}명", "영입 가능한 선수")
+        render_stat_card("이적시장 매물", f"{int(summary['listed_listings'])}명", "영입 가능한 선수")
     with stat_cols[3]:
         render_stat_card("스쿼드 배틀", f"{int(summary['battle_count'])}경기", "저장된 배틀 기록")
 
@@ -1661,11 +1665,11 @@ if page == "대시보드":
         st.dataframe(
             prepare_display_df(run_query("""
                 SELECT club_name,
-                       initial_budget_eur,
-                       current_budget_eur,
-                       total_spent_eur
+                       initial_budget_krw,
+                       current_budget_krw,
+                       total_spent_krw
                 FROM v_club_budget
-                ORDER BY current_budget_eur DESC
+                ORDER BY current_budget_krw DESC
             """)),
             width="stretch",
             hide_index=True,
@@ -1713,7 +1717,7 @@ elif page == "팀 분석":
                nationality,
                overall,
                seller_club,
-               asking_fee_eur,
+               asking_fee_krw,
                current_position_avg,
                league_avg_overall,
                weakness_gap,
@@ -1721,10 +1725,10 @@ elif page == "팀 분석":
                recommendation_score
         FROM v_transfer_recommendations
         WHERE buyer_club_id = %s
-          AND asking_fee_eur <= current_budget_eur
+          AND asking_fee_krw <= current_budget_krw
         ORDER BY recommendation_score DESC,
                  overall DESC,
-                 asking_fee_eur ASC
+                 asking_fee_krw ASC
         LIMIT 12
     """, (my_club_id,))
 
@@ -1800,7 +1804,7 @@ elif page == "내 스쿼드":
                position_group,
                primary_position,
                nationality,
-               market_value_eur,
+               market_value_krw,
                appearances,
                goals,
                assists,
@@ -2201,7 +2205,7 @@ elif page == "이적 시장":
                vm.nationality,
                vm.overall,
                vm.seller_club,
-               vm.asking_fee_eur,
+               vm.asking_fee_krw,
                tr.recommendation_reason,
                tr.recommendation_score,
                ps.pace,
@@ -2226,7 +2230,7 @@ elif page == "이적 시장":
           AND seller_squad.seller_player_count > 11
         ORDER BY tr.recommendation_score DESC,
                  vm.overall DESC,
-                 vm.asking_fee_eur ASC
+                 vm.asking_fee_krw ASC
     """, (my_club_id, my_club_id,))
 
     if market_df.empty:
@@ -2258,26 +2262,25 @@ elif page == "이적 시장":
                     value=overall_min
                 )
         with filter_cols[3]:
-            min_fee = int(market_df["asking_fee_eur"].min())
-            highest_fee = int(market_df["asking_fee_eur"].max())
+            min_fee = int(market_df["asking_fee_krw"].min())
+            highest_fee = int(market_df["asking_fee_krw"].max())
             default_max_fee = max(min_fee, min(int(my_budget), highest_fee))
             if min_fee == highest_fee:
-                st.metric("최대 이적료", format_krw_from_eur(highest_fee))
-                max_fee_krw = int(eur_to_krw(highest_fee))
+                st.metric("최대 이적료", format_krw(highest_fee))
+                max_fee = highest_fee
             else:
-                max_fee_krw = st.slider(
+                max_fee = st.slider(
                     "최대 이적료 (원)",
-                    min_value=int(eur_to_krw(min_fee)),
-                    max_value=int(eur_to_krw(highest_fee)),
-                    value=int(eur_to_krw(default_max_fee)),
+                    min_value=min_fee,
+                    max_value=highest_fee,
+                    value=default_max_fee,
                     step=50_000_000,
                     format="%d원"
                 )
-            max_fee = max_fee_krw / EUR_TO_KRW
 
         filtered_market_df = market_df[
             (market_df["overall"] >= min_overall)
-            & (market_df["asking_fee_eur"] <= max_fee)
+            & (market_df["asking_fee_krw"] <= max_fee)
         ].copy()
 
         if position_filter != "전체":
@@ -2306,7 +2309,7 @@ elif page == "이적 시장":
                     "nationality",
                     "overall",
                     "seller_club",
-                    "asking_fee_eur",
+                    "asking_fee_krw",
                     "recommendation_reason",
                     "recommendation_score"
                 ]]),
@@ -2322,7 +2325,7 @@ elif page == "이적 시장":
     if not filtered_market_df.empty:
 
         options = {
-            f"{row.player_name} | {row.position_group} | OVR {row.overall} | {row.seller_club} | {format_krw_from_eur(row.asking_fee_eur)}": int(row.listing_id)
+            f"{row.player_name} | {row.position_group} | OVR {row.overall} | {row.seller_club} | {format_krw(row.asking_fee_krw)}": int(row.listing_id)
             for row in filtered_market_df.itertuples()
         }
 
@@ -2338,7 +2341,7 @@ elif page == "이적 시장":
         ].iloc[0].to_dict()
 
         st.markdown("##### 영입 후보 상세")
-        render_player_card("영입할 선수", selected_player, selected_player["asking_fee_eur"])
+        render_player_card("영입할 선수", selected_player, selected_player["asking_fee_krw"])
 
         manager_info = load_manager_info(my_club_id)
         preview_formation = manager_info["preferred_formation"]
@@ -2387,11 +2390,11 @@ elif page == "이적 시장":
         with impact_cols[3]:
             render_stat_card(
                 "예산 변화",
-                f"{format_eur(my_budget)} → {format_eur(my_budget - float(selected_player['asking_fee_eur']))}",
-                f"지출 {format_eur(selected_player['asking_fee_eur'])}"
+                f"{format_krw_eok(my_budget)} → {format_krw_eok(my_budget - float(selected_player['asking_fee_krw']))}",
+                f"지출 {format_krw_eok(selected_player['asking_fee_krw'])}"
             )
 
-        insufficient_budget = float(selected_player["asking_fee_eur"]) > my_budget
+        insufficient_budget = float(selected_player["asking_fee_krw"]) > my_budget
         if insufficient_budget:
             st.error("현재 예산보다 이적료가 높아 영입할 수 없습니다.")
         if is_demo_mode():
@@ -2425,18 +2428,18 @@ elif page == "이적 시장":
                    p.player_name,
                    p.position_group,
                    p.primary_position,
-                   p.market_value_eur,
+                   p.market_value_krw,
                    ps.overall
             FROM players p
             JOIN player_stats ps
                 ON p.player_id = ps.player_id
             WHERE p.club_id = %s
-              AND p.market_value_eur > 0
+              AND p.market_value_krw > 0
               AND NOT EXISTS (
                   SELECT 1
                   FROM transfer_market tm
                   WHERE tm.player_id = p.player_id
-                    AND tm.status = 'available'
+                    AND tm.status = 'listed'
               )
             ORDER BY FIELD(p.position_group, 'GK', 'DF', 'MF', 'FW'),
                      ps.overall DESC,
@@ -2447,20 +2450,20 @@ elif page == "이적 시장":
             render_empty_state("등록 가능한 선수가 없습니다", "Transfermarkt 몸값이 확인된 선수는 이미 매물로 등록되어 있거나 현재 스쿼드에 없습니다.")
         else:
             list_options = {
-                f"{row.player_name} | {row.position_group} | OVR {row.overall} | Transfermarkt {format_eur(row.market_value_eur)}": int(row.player_id)
+                f"{row.player_name} | {row.position_group} | OVR {row.overall} | Transfermarkt {format_krw(row.market_value_krw)}": int(row.player_id)
                 for row in listable_df.itertuples()
             }
             selected_list_label = st.selectbox("등록할 선수", list(list_options.keys()))
-            default_fee = int(listable_df[listable_df["player_id"] == list_options[selected_list_label]].iloc[0]["market_value_eur"])
+            default_fee = int(listable_df[listable_df["player_id"] == list_options[selected_list_label]].iloc[0]["market_value_krw"])
+            asking_fee = max(default_fee, 0)
             asking_fee_krw = st.number_input(
                 "요구 이적료 (원)",
                 min_value=0,
-                value=int(eur_to_krw(max(default_fee, 0))),
+                value=asking_fee,
                 step=50_000_000,
                 disabled=True,
                 help="임의 산정을 막기 위해 Transfermarkt market value와 동일하게 고정됩니다."
             )
-            asking_fee = default_fee
 
             if is_demo_mode():
                 st.info("데모 모드에서는 매물 등록이 비활성화됩니다.")
@@ -2485,7 +2488,7 @@ elif page == "이적 시장":
                    position_group,
                    primary_position,
                    overall,
-                   asking_fee_eur
+                   asking_fee_krw
             FROM v_transfer_market
             WHERE seller_club_id = %s
             ORDER BY listed_date DESC,
@@ -2493,10 +2496,10 @@ elif page == "이적 시장":
         """, (my_club_id,))
 
         if own_listing_df.empty:
-            render_empty_state("취소할 매물이 없습니다", "내 구단이 등록한 available 매물이 없습니다.")
+            render_empty_state("취소할 매물이 없습니다", "내 구단이 등록한 listed 매물이 없습니다.")
         else:
             cancel_options = {
-                f"{row.player_name} | {row.position_group} | OVR {row.overall} | {format_eur(row.asking_fee_eur)}": int(row.listing_id)
+                f"{row.player_name} | {row.position_group} | OVR {row.overall} | {format_krw_eok(row.asking_fee_krw)}": int(row.listing_id)
                 for row in own_listing_df.itertuples()
             }
             selected_cancel_label = st.selectbox("취소할 매물", list(cancel_options.keys()))
@@ -2807,12 +2810,12 @@ elif page == "시즌":
                player_name,
                from_club,
                to_club,
-               fee_eur,
+               fee_krw,
                transfer_date
         FROM v_season_top_transfers
         WHERE fee_rank <= 5
         ORDER BY fee_rank ASC,
-                 fee_eur DESC
+                 fee_krw DESC
     """)
 
     champion_df = run_query("""
@@ -2902,7 +2905,7 @@ elif page == "기록":
                fc.club_name AS from_club,
                tc.club_name AS to_club,
                th.transfer_type,
-               th.fee_eur,
+               th.fee_krw,
                th.transfer_date,
                th.memo
         FROM transfer_history th
@@ -2944,7 +2947,7 @@ elif page == "기록":
         buy_spent = transfer_history_df[
             (transfer_history_df["to_club"] == my_club_name)
             & (transfer_history_df["transfer_type"] == "buy")
-        ]["fee_eur"].sum()
+        ]["fee_krw"].sum()
         outgoing_count = len(transfer_history_df[
             (transfer_history_df["from_club"] == my_club_name)
             & (transfer_history_df["transfer_type"] == "buy")
@@ -2970,7 +2973,7 @@ elif page == "기록":
     with record_cols[0]:
         render_stat_card("전체 이적 기록", f"{len(transfer_history_df)}건", "영입/판매 포함")
     with record_cols[1]:
-        render_stat_card("내 구단 지출", format_eur(buy_spent), "완료된 영입 이적료")
+        render_stat_card("내 구단 지출", format_krw_eok(buy_spent), "완료된 영입 이적료")
     with record_cols[2]:
         render_stat_card("내 구단 판매", f"{outgoing_count}명", "다른 구단으로 이동한 선수")
     with record_cols[3]:
@@ -3039,3 +3042,6 @@ elif page == "감사 로그":
             hide_index=True,
             column_config=COLUMN_MAPPING
         )
+
+
+

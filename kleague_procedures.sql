@@ -1,4 +1,4 @@
-USE kleague_db;
+﻿USE kleague_db;
 
 DROP PROCEDURE IF EXISTS sp_buy_player;
 DROP PROCEDURE IF EXISTS sp_buy_player_with_release;
@@ -45,7 +45,7 @@ BEGIN
         SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'User does not exist';
     END IF;
 
-    SELECT tm.player_id, tm.seller_club_id, tm.asking_fee_eur, tm.status, p.player_name, c.club_name
+    SELECT tm.player_id, tm.seller_club_id, tm.asking_fee_krw, tm.status, p.player_name, c.club_name
       INTO v_player_id, v_seller_club_id, v_fee, v_status, v_player_name, v_seller_club_name
     FROM transfer_market tm
     JOIN players p ON tm.player_id = p.player_id
@@ -53,8 +53,16 @@ BEGIN
     WHERE tm.listing_id = p_listing_id
     FOR UPDATE;
 
-    IF v_status <> 'available' THEN
-        SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Listing is not available';
+    IF v_player_id IS NULL THEN
+        SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Listing does not exist';
+    END IF;
+
+    IF v_status <> 'listed' THEN
+        SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Listing is not listed';
+    END IF;
+
+    IF v_fee <= 0 THEN
+        SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Listing fee must be positive';
     END IF;
 
     IF v_buyer_club_id = v_seller_club_id THEN
@@ -69,7 +77,7 @@ BEGIN
         SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Seller club must keep at least 11 players';
     END IF;
 
-    SELECT current_budget_eur INTO v_buyer_budget
+    SELECT current_budget_krw INTO v_buyer_budget
     FROM clubs
     WHERE club_id = v_buyer_club_id
     FOR UPDATE;
@@ -91,7 +99,7 @@ BEGIN
     SET status = 'expired'
     WHERE player_id = v_player_id AND status = 'active';
 
-    INSERT INTO contracts (player_id, club_id, start_date, end_date, salary_eur, status)
+    INSERT INTO contracts (player_id, club_id, start_date, end_date, salary_krw, status)
     VALUES (v_player_id, v_buyer_club_id, CURDATE(), DATE_ADD(CURDATE(), INTERVAL 2 YEAR), GREATEST(v_fee * 0.08, 20000), 'active');
 
     UPDATE players
@@ -101,19 +109,25 @@ BEGIN
     WHERE player_id = v_player_id;
 
     UPDATE clubs
-    SET current_budget_eur = current_budget_eur - v_fee
+    SET current_budget_krw = current_budget_krw - v_fee,
+        total_spent_krw = total_spent_krw + v_fee
     WHERE club_id = v_buyer_club_id;
 
     UPDATE clubs
-    SET current_budget_eur = current_budget_eur + v_fee
+    SET current_budget_krw = current_budget_krw + v_fee
     WHERE club_id = v_seller_club_id;
 
     UPDATE transfer_market
     SET status = 'sold'
-    WHERE listing_id = p_listing_id;
+    WHERE listing_id = p_listing_id
+      AND status = 'listed';
+
+    IF ROW_COUNT() = 0 THEN
+        SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Listing is not listed';
+    END IF;
 
     INSERT INTO transfer_history
-        (player_id, from_club_id, to_club_id, transfer_type, fee_eur, transfer_date, season_id, created_by_user_id, memo)
+        (player_id, from_club_id, to_club_id, transfer_type, fee_krw, transfer_date, season_id, created_by_user_id, memo)
     VALUES
         (v_player_id, v_seller_club_id, v_buyer_club_id, 'buy', v_fee, CURDATE(),
          v_active_season_id, p_user_id, 'Completed through sp_buy_player');
@@ -126,7 +140,7 @@ BEGIN
         v_player_name AS bought_player,
         v_seller_club_name AS seller_club,
         v_buyer_club_name AS buyer_club,
-        v_fee AS fee_eur,
+        v_fee AS fee_krw,
         v_seller_club_id AS from_club_id,
         v_buyer_club_id AS to_club_id;
 END$$
@@ -200,11 +214,11 @@ BEGIN
         v_result AS result;
 END$$
 
-CREATE PROCEDURE sp_list_player_for_transfer(IN p_user_id INT, IN p_player_id INT, IN p_asking_fee_eur DECIMAL(15,2))
+CREATE PROCEDURE sp_list_player_for_transfer(IN p_user_id INT, IN p_player_id INT, IN p_asking_fee_krw DECIMAL(15,2))
 BEGIN
     DECLARE v_user_club_id INT;
     DECLARE v_player_club_id INT;
-    DECLARE v_market_value_eur DECIMAL(15,2);
+    DECLARE v_market_value_krw DECIMAL(15,2);
 
     DECLARE EXIT HANDLER FOR SQLEXCEPTION
     BEGIN
@@ -218,8 +232,8 @@ BEGIN
     FROM app_users
     WHERE user_id = p_user_id;
 
-    SELECT club_id, market_value_eur
-      INTO v_player_club_id, v_market_value_eur
+    SELECT club_id, market_value_krw
+      INTO v_player_club_id, v_market_value_krw
     FROM players
     WHERE player_id = p_player_id;
 
@@ -227,27 +241,27 @@ BEGIN
         SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'User can list only own club players';
     END IF;
 
-    IF p_asking_fee_eur < 0 THEN
-        SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Asking fee cannot be negative';
+    IF p_asking_fee_krw <= 0 THEN
+        SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Asking fee must be greater than zero';
     END IF;
 
-    IF v_market_value_eur <= 0 THEN
+    IF v_market_value_krw <= 0 THEN
         SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Player has no confirmed Transfermarkt market value';
     END IF;
 
-    IF ABS(p_asking_fee_eur - v_market_value_eur) > 0.01 THEN
-        SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Asking fee must equal confirmed Transfermarkt market value';
+    IF ABS(p_asking_fee_krw - v_market_value_krw) > 0.01 THEN
+        SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Asking fee must equal confirmed Transfermarkt market value in KRW';
     END IF;
 
-    INSERT INTO transfer_market (player_id, seller_club_id, asking_fee_eur, listed_date, status)
-    VALUES (p_player_id, v_user_club_id, v_market_value_eur, CURDATE(), 'available');
+    INSERT INTO transfer_market (player_id, seller_club_id, asking_fee_krw, listed_date, status)
+    VALUES (p_player_id, v_user_club_id, v_market_value_krw, CURDATE(), 'listed');
 
     SET @app_user_id = NULL;
 
     SELECT 'LISTING_CREATED' AS result_code,
            LAST_INSERT_ID() AS listing_id,
            p_player_id AS player_id,
-           v_market_value_eur AS asking_fee_eur;
+           v_market_value_krw AS asking_fee_krw;
 END$$
 
 CREATE PROCEDURE sp_cancel_listing(IN p_user_id INT, IN p_listing_id INT)
@@ -280,8 +294,8 @@ BEGIN
         SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'User can cancel only own club listings';
     END IF;
 
-    IF v_status <> 'available' THEN
-        SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Only available listings can be cancelled';
+    IF v_status <> 'listed' THEN
+        SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Only listed listings can be cancelled';
     END IF;
 
     UPDATE transfer_market
@@ -341,3 +355,6 @@ BEGIN
 END$$
 
 DELIMITER ;
+
+
+
