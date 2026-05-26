@@ -21,14 +21,22 @@ K리그 구단 운영을 위한 DB 중심 프로젝트입니다. 선수 영입/�
 
 참고:
 - `data/*.csv` 산출물은 이미 KRW 값입니다.
+<<<<<<< HEAD
 - 선수 몸값 원본은 `data/transfermarkt_values.csv`에 EUR 기준으로 보존하고, 매칭된 선수만 `1 EUR = 1761.3 KRW`로 환산해 `players.market_value_krw`에 저장합니다.
 - SQL 시드(`kleague_dml.sql`, `kleague_dml_kor.sql`, `kleague_full_setup.sql`)도 이미 KRW 값으로 생성되어 import 시 추가 환산을 하지 않습니다.
 - Transfermarkt와 K League 공식 선수단이 확실히 매칭되지 않은 선수는 임의 몸값을 넣지 않고 `market_value_krw = 0`으로 둡니다.
+=======
+
+선수 가치 정책:
+- `market_value_krw`는 이적시장 시뮬레이션용 최종 선수 가치입니다.
+- Transfermarkt 확인값이 있으면 그대로 사용하고, 없는 선수는 공개 기록 기반 산식으로 추정했습니다.
+- 추정값은 실제 시장가가 아니라 시뮬레이션 균형을 위한 값입니다.
+>>>>>>> 0d899d7 (several changes)
 
 ## 핵심 규칙
 
 - `clubs.initial_budget_krw`, `clubs.current_budget_krw`, `clubs.total_spent_krw` 사용
-- `players.market_value_krw` 사용
+- `players.market_value_krw`(최종 가치), `players.transfermarkt_value_krw`(원본 확인값), `players.value_source_type` 사용
 - `transfer_market.asking_fee_krw` 사용
 - `transfer_history.fee_krw` 사용
 - 이적시장 상태는 `listed`, `sold`, `cancelled`로 관리

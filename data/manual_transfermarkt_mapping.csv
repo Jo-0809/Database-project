@@ -1,0 +1,3 @@
+player_id,player_name,club_name,age,nationality,position_group,transfermarkt_player_id,transfermarkt_name,market_value_eur,value_source_url,confidence,note
+20260046,후이즈,FC Seoul,30,Colombia,FW,192740,Aleksandar Palocevic,450000,https://www.transfermarkt.com/aleksandar-palocevic/marktwertverlauf/spieler/192740,low,auto_not_confident_score=0.529; set confidence=confirmed to apply
+20250092,이재준,Yongin City FC,19,South Korea,DF,378174,Jardel,275000,https://www.transfermarkt.com/jardel/marktwertverlauf/spieler/378174,low,auto_not_confident_score=0.533; set confidence=confirmed to apply

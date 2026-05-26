@@ -1,4 +1,4 @@
-﻿DROP DATABASE IF EXISTS kleague_db;
+DROP DATABASE IF EXISTS kleague_db;
 CREATE DATABASE kleague_db
   DEFAULT CHARACTER SET utf8mb4
   DEFAULT COLLATE utf8mb4_unicode_ci;
@@ -61,7 +61,9 @@ CREATE TABLE players (
     height_cm SMALLINT NULL,
     weight_kg SMALLINT NULL,
     preferred_foot VARCHAR(20) NOT NULL DEFAULT 'Unknown',
+    transfermarkt_value_krw DECIMAL(15,2) NULL,
     market_value_krw DECIMAL(15,2) NOT NULL DEFAULT 0,
+    value_source_type ENUM('TRANSFERMARKT','MANUAL_CONFIRMED','ESTIMATED') NOT NULL DEFAULT 'ESTIMATED',
     contract_until DATE NULL,
     joined_date DATE NULL,
     profile_source_url VARCHAR(500),
@@ -71,10 +73,12 @@ CREATE TABLE players (
     CONSTRAINT chk_player_age CHECK (age IS NULL OR age BETWEEN 14 AND 60),
     CONSTRAINT chk_player_height CHECK (height_cm IS NULL OR height_cm BETWEEN 140 AND 220),
     CONSTRAINT chk_player_weight CHECK (weight_kg IS NULL OR weight_kg BETWEEN 40 AND 150),
+    CONSTRAINT chk_player_transfermarkt_value CHECK (transfermarkt_value_krw IS NULL OR transfermarkt_value_krw >= 0),
     CONSTRAINT chk_player_market_value CHECK (market_value_krw >= 0),
     INDEX idx_players_club_position (club_id, position_group),
     INDEX idx_players_market_value (market_value_krw),
-    INDEX idx_players_name (player_name)
+    INDEX idx_players_name (player_name),
+    INDEX idx_players_value_source_type (value_source_type)
 ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
 CREATE TABLE player_stats (
@@ -239,7 +243,9 @@ SELECT
     p.primary_position,
     c.league_name,
     c.club_name,
+    p.transfermarkt_value_krw,
     p.market_value_krw,
+    p.value_source_type,
     ps.appearances,
     ps.goals,
     ps.assists,
@@ -305,6 +311,8 @@ SELECT
     p.position_group,
     p.primary_position,
     p.nationality,
+    p.value_source_type,
+    p.market_value_krw,
     ps.overall,
     c.club_name AS seller_club,
     c.league_name AS seller_league,

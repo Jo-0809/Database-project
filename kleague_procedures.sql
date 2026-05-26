@@ -1,4 +1,4 @@
-﻿USE kleague_db;
+USE kleague_db;
 
 DROP PROCEDURE IF EXISTS sp_buy_player;
 DROP PROCEDURE IF EXISTS sp_buy_player_with_release;

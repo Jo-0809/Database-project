@@ -6,6 +6,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import date, datetime
 from pathlib import Path
+from difflib import SequenceMatcher
 from urllib.parse import urljoin
 import unicodedata
 
@@ -18,7 +19,14 @@ DATA_DIR = ROOT / "data"
 BASE_URL = "https://www.kleague.com"
 TRANSFERMARKT_BASE_URL = "https://www.transfermarkt.com"
 REFERENCE_DATE = date(2026, 5, 26)
+<<<<<<< HEAD
 EUR_TO_KRW = 1761.3
+=======
+KRW_PER_EUR = 1500
+NO_CONFIDENT_TRANSFERMARKT_MATCH = "NO_CONFIDENT_TRANSFERMARKT_MATCH"
+MANUAL_MAPPING_PATH = DATA_DIR / "manual_transfermarkt_mapping.csv"
+MIN_ESTIMATED_VALUE_KRW_BY_LEAGUE = {1: 50_000_000, 2: 30_000_000}
+>>>>>>> 0d899d7 (several changes)
 
 FIELD_NAME = "\uc774\ub984"
 FIELD_ENGLISH_NAME = "\uc601\ubb38\uba85"
@@ -42,6 +50,25 @@ TRANSFERMARKT_CLUB_ALIASES = {
     "Paju Frontier": "Paju Citizen FC",
     "Seoul E-Land": "Seoul E-Land FC",
     "Yongin FC": "Yongin City FC",
+}
+
+KNOWN_TRANSFERMARKT_ALIASES = {
+    ("Daegu FC", "cesinha"): ["cesarfernandosilvamelo", "cesarmelo"],
+    ("Jeonnam Dragons", "valdivia"): ["wandersonferreiradeoliveira", "wandersonoliveira"],
+    ("Daejeon Hana Citizen", "antonkryvotsiuk"): ["antonkrivotsyuk"],
+    ("Daejeon Hana Citizen", "masatoshiishida"): ["masatoshiishida"],
+    ("Suwon Samsung Bluewings", "stanislavilyuchenko"): ["stanislaviljutcenko"],
+    ("Suwon Samsung Bluewings", "reis"): ["reissilvamoraisisnairo"],
+    ("Seoul E-Land FC", "osmar"): ["ibanezosmar"],
+    ("Seongnam FC", "elionay"): ["elionayfreitasdasilva"],
+    ("FC Anyang", "brenoherculano"): ["brenoherculano"],
+    ("FC Anyang", "airtonmoises"): ["airtonmoises"],
+    ("Bucheon FC 1995", "rodrigobassani"): ["rodrigbassani", "rodrigobassani"],
+    ("Incheon United", "gerso"): ["fernandesgerso"],
+    ("Chungbuk Cheongju FC", "mendergarcia"): ["mendergarcia"],
+    ("Cheonan City FC", "brunolamas"): ["lamasbruno", "pavanlamasbrunojose"],
+    ("Jeonnam Dragons", "ronan"): ["ronandavidjeronimo"],
+    ("Seoul E-Land FC", "jaehwanpark"): ["jaehwanpak"],
 }
 
 
@@ -116,12 +143,21 @@ def row_values(row, columns):
     numeric_columns = {
         "club_id", "original_club_id", "founded_year", "stadium_capacity",
         "league_id",
+<<<<<<< HEAD
         "initial_budget_krw", "current_budget_krw", "age", "squad_number",
         "height_cm", "weight_kg", "market_value_krw", "appearances",
         "starts_estimated", "goals", "assists", "shots", "yellow_cards",
         "red_cards", "pace", "shooting", "passing", "defending", "physical",
         "salary_krw", "asking_fee_krw", "listing_id", "manager_id", "rating",
         "season_id", "player_id", "seller_club_id", "user_id",
+=======
+        "initial_budget_krw", "current_budget_krw", "total_spent_krw", "age", "squad_number",
+        "height_cm", "weight_kg", "market_value_krw", "transfermarkt_value_krw", "market_value_eur", "appearances",
+        "starts_estimated", "goals", "assists", "shots", "yellow_cards",
+        "red_cards", "pace", "shooting", "passing", "defending", "physical",
+        "salary_krw", "asking_fee_krw", "listing_id", "manager_id", "rating",
+        "season_id", "player_id", "seller_club_id", "user_id", "transfermarkt_player_id",
+>>>>>>> 0d899d7 (several changes)
     }
     values = []
     for column in columns:
@@ -181,6 +217,34 @@ def normalize_external_name(value):
     text = unicodedata.normalize("NFKD", str(value or "").lower())
     text = "".join(ch for ch in text if not unicodedata.combining(ch))
     return re.sub(r"[^a-z0-9가-힣]", "", text)
+
+
+def romanized_tokens(value):
+    text = unicodedata.normalize("NFKD", str(value or "").lower())
+    text = "".join(ch for ch in text if not unicodedata.combining(ch))
+    text = re.sub(r"[^a-z0-9 ]", " ", text)
+    stop_words = {"de", "da", "dos", "do", "del", "la", "las", "los", "van", "von", "al", "bin"}
+    return [token for token in text.split() if token and token not in stop_words]
+
+
+def english_alias_keys(value):
+    tokens = romanized_tokens(value)
+    keys = set()
+    normalized = normalize_external_name(value)
+    if normalized:
+        keys.add(normalized)
+    if tokens:
+        keys.add("".join(tokens))
+        if len(tokens) >= 2:
+            keys.add(tokens[0] + tokens[-1])
+            keys.add(tokens[-1] + tokens[0])
+            keys.add(tokens[0] + tokens[1])
+            keys.add(tokens[1] + tokens[0])
+            keys.add(tokens[-2] + tokens[-1])
+            keys.add(tokens[-1] + tokens[-2])
+            keys.add("".join(tokens[:2]))
+            keys.add("".join(tokens[-2:]))
+    return {item for item in keys if item}
 
 
 def normalize_transfermarkt_club(value):
@@ -321,7 +385,191 @@ def collect_transfermarkt_values():
     return values
 
 
-def apply_transfermarkt_values(players, transfermarkt_values):
+def assign_transfermarkt_value(player, row, match_method, value_source_type="TRANSFERMARKT"):
+    market_value_eur = int(round(float(row.get("market_value_eur") or 0)))
+    if market_value_eur <= 0:
+        return False
+    market_value_krw = market_value_eur * KRW_PER_EUR
+    player["transfermarkt_value_krw"] = market_value_krw
+    player["market_value_krw"] = market_value_krw
+    player["value_source_type"] = value_source_type
+    player["value_source_url"] = row.get("value_source_url") or NO_CONFIDENT_TRANSFERMARKT_MATCH
+    row["matched_player_id"] = player["player_id"]
+    row["matched_player_name"] = player["player_name"]
+    row["match_method"] = match_method
+    return True
+
+
+def build_manual_mapping_candidates(players, transfermarkt_values, matched_player_ids):
+    player_index = {int(player["player_id"]): player for player in players}
+    candidates = []
+
+    for row in transfermarkt_values:
+        if str(row.get("matched_player_id") or "").strip():
+            continue
+
+        tm_name = row.get("transfermarkt_name") or ""
+        tm_key = normalize_external_name(tm_name)
+        tm_tokens = romanized_tokens(tm_name)
+
+        club_candidates = [
+            player
+            for player in players
+            if player.get("club_name") == row.get("club_name") and int(player.get("player_id")) not in matched_player_ids
+        ]
+
+        scored = []
+        for player in club_candidates:
+            player_keys = english_alias_keys(player.get("official_english_name"))
+            best_score = 0.0
+            for key in player_keys:
+                best_score = max(best_score, SequenceMatcher(None, tm_key, key).ratio())
+
+            player_tokens = romanized_tokens(player.get("official_english_name"))
+            last_name_match = bool(tm_tokens and player_tokens and tm_tokens[-1] == player_tokens[-1])
+            first_token_score = (
+                SequenceMatcher(None, tm_tokens[0], player_tokens[0]).ratio()
+                if tm_tokens and player_tokens
+                else 0.0
+            )
+
+            scored.append((
+                best_score,
+                1 if last_name_match else 0,
+                first_token_score,
+                int(player["player_id"]),
+                player,
+            ))
+
+        scored.sort(reverse=True)
+        top = scored[0] if scored else None
+
+        if top:
+            score_text = f"{top[0]:.3f}"
+            confidence = "high" if top[0] >= 0.9 else "medium" if top[0] >= 0.8 else "low"
+            player = top[4]
+            candidates.append({
+                "player_id": int(player["player_id"]),
+                "player_name": player.get("player_name", ""),
+                "club_name": player.get("club_name", ""),
+                "age": player.get("age", ""),
+                "nationality": player.get("nationality", ""),
+                "position_group": player.get("position_group", ""),
+                "transfermarkt_player_id": int(row.get("transfermarkt_player_id")),
+                "transfermarkt_name": tm_name,
+                "market_value_eur": int(round(float(row.get("market_value_eur") or 0))),
+                "value_source_url": row.get("value_source_url", ""),
+                "confidence": confidence,
+                "note": f"auto_not_confident_score={score_text}; set confidence=confirmed to apply",
+            })
+        else:
+            candidates.append({
+                "player_id": "",
+                "player_name": "",
+                "club_name": row.get("club_name", ""),
+                "age": row.get("age", ""),
+                "nationality": row.get("nationality", ""),
+                "position_group": row.get("position_group", ""),
+                "transfermarkt_player_id": int(row.get("transfermarkt_player_id")),
+                "transfermarkt_name": tm_name,
+                "market_value_eur": int(round(float(row.get("market_value_eur") or 0))),
+                "value_source_url": row.get("value_source_url", ""),
+                "confidence": "low",
+                "note": "no_same_club_candidate_found",
+            })
+
+    return candidates
+
+
+def load_manual_transfermarkt_mapping():
+    columns = [
+        "player_id",
+        "player_name",
+        "club_name",
+        "age",
+        "nationality",
+        "position_group",
+        "transfermarkt_player_id",
+        "transfermarkt_name",
+        "market_value_eur",
+        "value_source_url",
+        "confidence",
+        "note",
+    ]
+
+    if not MANUAL_MAPPING_PATH.exists():
+        return []
+
+    rows = pd.read_csv(MANUAL_MAPPING_PATH).fillna("").to_dict("records")
+    normalized_rows = []
+    for row in rows:
+        normalized_rows.append({column: row.get(column, "") for column in columns})
+    return normalized_rows
+
+
+def is_manual_confirmed(row):
+    confidence = str(row.get("confidence", "")).strip().lower()
+    return confidence in {"confirmed", "manual_confirmed", "high_confirmed"}
+
+
+def apply_manual_transfermarkt_mapping(players, transfermarkt_values, matched_player_ids, manual_rows):
+    player_by_id = {int(player["player_id"]): player for player in players}
+    tm_by_id = {int(row["transfermarkt_player_id"]): row for row in transfermarkt_values}
+
+    applied = 0
+    for row in manual_rows:
+        if not is_manual_confirmed(row):
+            continue
+
+        try:
+            player_id = int(float(row.get("player_id")))
+            tm_id = int(float(row.get("transfermarkt_player_id")))
+        except (TypeError, ValueError):
+            continue
+
+        player = player_by_id.get(player_id)
+        tm_row = tm_by_id.get(tm_id)
+        if not player or not tm_row:
+            continue
+
+        if str(tm_row.get("matched_player_id") or "").strip():
+            continue
+
+        if player_id in matched_player_ids:
+            continue
+
+        if player.get("club_name") != tm_row.get("club_name"):
+            continue
+
+        if assign_transfermarkt_value(player, tm_row, "manual_mapping", value_source_type="MANUAL_CONFIRMED"):
+            matched_player_ids.add(player_id)
+            applied += 1
+
+    return applied
+
+
+def apply_transfermarkt_values(players, transfermarkt_values, manual_rows=None):
+    for player in players:
+        player["market_value_krw"] = 0
+        player["transfermarkt_value_krw"] = None
+        player["value_source_type"] = "ESTIMATED"
+        player["value_source_url"] = NO_CONFIDENT_TRANSFERMARKT_MATCH
+
+    for row in transfermarkt_values:
+        row["matched_player_id"] = ""
+        row["matched_player_name"] = ""
+        row["match_method"] = ""
+
+    matched_player_ids = set()
+    matched_count = 0
+    match_counts = {
+        "official_english_name_and_club": 0,
+        "unique_club_age_nationality_position": 0,
+        "known_alias_map": 0,
+        "romanized_name_similarity": 0,
+        "manual_mapping": 0,
+    }
+
     players_by_english_key = {}
     english_key_counts = {}
     for player in players:
@@ -333,56 +581,245 @@ def apply_transfermarkt_values(players, transfermarkt_values):
 
     transfermarkt_key_counts = {}
     for row in transfermarkt_values:
-        key = (row["club_name"], row["transfermarkt_name_key"])
+        key = (row["club_name"], normalize_external_name(row.get("transfermarkt_name")))
         transfermarkt_key_counts[key] = transfermarkt_key_counts.get(key, 0) + 1
 
-    matched_player_ids = set()
-    matched_count = 0
     for row in transfermarkt_values:
-        key = (row["club_name"], row["transfermarkt_name_key"])
+        key = (row["club_name"], normalize_external_name(row.get("transfermarkt_name")))
         player = players_by_english_key.get(key)
         if not player or english_key_counts.get(key) != 1 or transfermarkt_key_counts.get(key) != 1:
             continue
-        player["market_value_eur"] = row["market_value_eur"]
-        player["value_source_url"] = row["value_source_url"]
-        row["matched_player_id"] = player["player_id"]
-        row["matched_player_name"] = player["player_name"]
-        row["match_method"] = "official_english_name_and_club"
-        matched_player_ids.add(player["player_id"])
-        matched_count += 1
+        if player["player_id"] in matched_player_ids:
+            continue
+        if assign_transfermarkt_value(player, row, "official_english_name_and_club"):
+            matched_player_ids.add(int(player["player_id"]))
+            matched_count += 1
+            match_counts["official_english_name_and_club"] += 1
 
     demographic_counts = {}
     for row in transfermarkt_values:
         if row["matched_player_id"]:
             continue
-        key = (row["club_name"], row["age"], row["nationality"], row["position_group"])
+        key = (row["club_name"], row.get("age"), row.get("nationality"), row.get("position_group"))
         demographic_counts[key] = demographic_counts.get(key, 0) + 1
 
     players_by_demographic = {}
     player_demographic_counts = {}
     for player in players:
-        if player["player_id"] in matched_player_ids:
+        if int(player["player_id"]) in matched_player_ids:
             continue
-        key = (player["club_name"], player["age"], player["nationality"], player["position_group"])
+        key = (player["club_name"], player.get("age"), player.get("nationality"), player.get("position_group"))
         player_demographic_counts[key] = player_demographic_counts.get(key, 0) + 1
         players_by_demographic[key] = player
 
     for row in transfermarkt_values:
         if row["matched_player_id"]:
             continue
-        key = (row["club_name"], row["age"], row["nationality"], row["position_group"])
+        key = (row["club_name"], row.get("age"), row.get("nationality"), row.get("position_group"))
         player = players_by_demographic.get(key)
         if not player or demographic_counts.get(key) != 1 or player_demographic_counts.get(key) != 1:
             continue
-        player["market_value_eur"] = row["market_value_eur"]
-        player["value_source_url"] = row["value_source_url"]
-        row["matched_player_id"] = player["player_id"]
-        row["matched_player_name"] = player["player_name"]
-        row["match_method"] = "unique_club_age_nationality_position"
-        matched_player_ids.add(player["player_id"])
-        matched_count += 1
+        if assign_transfermarkt_value(player, row, "unique_club_age_nationality_position"):
+            matched_player_ids.add(int(player["player_id"]))
+            matched_count += 1
+            match_counts["unique_club_age_nationality_position"] += 1
 
-    return matched_count
+    for row in transfermarkt_values:
+        if row["matched_player_id"]:
+            continue
+
+        tm_key = normalize_external_name(row.get("transfermarkt_name"))
+        alias_targets = KNOWN_TRANSFERMARKT_ALIASES.get((row.get("club_name"), tm_key), [])
+        if not alias_targets:
+            continue
+
+        candidates = []
+        for player in players:
+            player_id = int(player["player_id"])
+            if player_id in matched_player_ids:
+                continue
+            if player.get("club_name") != row.get("club_name"):
+                continue
+            player_keys = english_alias_keys(player.get("official_english_name"))
+            if any(alias_key in player_keys for alias_key in alias_targets):
+                candidates.append(player)
+
+        if len(candidates) != 1:
+            continue
+
+        player = candidates[0]
+        if assign_transfermarkt_value(player, row, "known_alias_map"):
+            matched_player_ids.add(int(player["player_id"]))
+            matched_count += 1
+            match_counts["known_alias_map"] += 1
+
+    for row in transfermarkt_values:
+        if row["matched_player_id"]:
+            continue
+
+        tm_name = row.get("transfermarkt_name") or ""
+        tm_key = normalize_external_name(tm_name)
+        tm_tokens = romanized_tokens(tm_name)
+        if len(tm_tokens) < 2:
+            continue
+
+        candidates = []
+        for player in players:
+            player_id = int(player["player_id"])
+            if player_id in matched_player_ids:
+                continue
+            if player.get("club_name") != row.get("club_name"):
+                continue
+
+            player_tokens = romanized_tokens(player.get("official_english_name"))
+            if len(player_tokens) < 2:
+                continue
+
+            player_keys = english_alias_keys(player.get("official_english_name"))
+            best_score = 0.0
+            for key in player_keys:
+                best_score = max(best_score, SequenceMatcher(None, tm_key, key).ratio())
+
+            last_name_match = tm_tokens[-1] == player_tokens[-1]
+            first_token_similarity = SequenceMatcher(None, tm_tokens[0], player_tokens[0]).ratio()
+            candidates.append((best_score, last_name_match, first_token_similarity, player))
+
+        if not candidates:
+            continue
+
+        candidates.sort(key=lambda item: (item[0], 1 if item[1] else 0, item[2]), reverse=True)
+        top = candidates[0]
+        second_score = candidates[1][0] if len(candidates) > 1 else 0.0
+
+        if top[0] >= 0.84 and top[1] and top[2] >= 0.45 and (top[0] - second_score) >= 0.05:
+            player = top[3]
+            if assign_transfermarkt_value(player, row, "romanized_name_similarity"):
+                matched_player_ids.add(int(player["player_id"]))
+                matched_count += 1
+                match_counts["romanized_name_similarity"] += 1
+
+    manual_applied = 0
+    if manual_rows:
+        manual_applied = apply_manual_transfermarkt_mapping(players, transfermarkt_values, matched_player_ids, manual_rows)
+        matched_count += manual_applied
+        match_counts["manual_mapping"] += manual_applied
+
+    manual_candidates = build_manual_mapping_candidates(players, transfermarkt_values, matched_player_ids)
+
+    return {
+        "matched_total": matched_count,
+        "match_counts": match_counts,
+        "manual_applied": manual_applied,
+        "manual_candidates": manual_candidates,
+        "matched_player_ids": matched_player_ids,
+    }
+
+
+def estimate_market_value_krw(player, stat_row, league_top_transfermarkt_krw):
+    league_id = int(player.get("league_id") or 2)
+    overall = float(stat_row.get("overall") or 55)
+    age = int(player.get("age") or 24)
+    appearances = float(stat_row.get("appearances") or 0)
+    goals = float(stat_row.get("goals") or 0)
+    assists = float(stat_row.get("assists") or 0)
+    starts_estimated = float(stat_row.get("starts_estimated") or 0)
+    position_group = str(player.get("position_group") or "MF")
+
+    base_by_league_eur = 42_000 if league_id == 1 else 28_000
+    position_factor = {"GK": 0.92, "DF": 0.98, "MF": 1.05, "FW": 1.12}.get(position_group, 1.00)
+
+    overall_factor = max(0.58, ((overall - 40) / 30) ** 1.36)
+    age_gap = abs(age - 27)
+    age_factor = max(0.62, 1.12 - age_gap * 0.03)
+    appearance_factor = (
+        0.62
+        + min(1.0, appearances / 30.0) * 0.24
+        + min(1.0, starts_estimated / 24.0) * 0.14
+    )
+
+    contribution_bonus_eur = (
+        goals * (5_200 if position_group == "FW" else 3_200)
+        + assists * (3_200 if position_group in {"MF", "FW"} else 1_900)
+        + max(0.0, starts_estimated - 8) * 650
+    )
+
+    # estimated_eur = base_by_league
+    #               * overall_factor
+    #               * age_factor
+    #               * position_factor
+    #               * appearance_factor
+    #               + contribution_bonus
+    estimated_eur = (
+        base_by_league_eur
+        * overall_factor
+        * age_factor
+        * position_factor
+        * appearance_factor
+        + contribution_bonus_eur
+    )
+    estimated_krw = estimated_eur * KRW_PER_EUR
+
+    min_value_krw = MIN_ESTIMATED_VALUE_KRW_BY_LEAGUE.get(league_id, 30_000_000)
+    overall_cap_krw = 90_000_000 + max(0.0, overall - 42.0) ** 2 * 900_000
+    if league_id != 1:
+        overall_cap_krw *= 0.88
+
+    if league_top_transfermarkt_krw > 0:
+        league_cap_krw = league_top_transfermarkt_krw * 0.93
+        max_value_krw = min(league_cap_krw, overall_cap_krw)
+    else:
+        max_value_krw = overall_cap_krw
+
+    if max_value_krw < min_value_krw:
+        max_value_krw = min_value_krw
+
+    estimated_krw = min(max_value_krw, max(min_value_krw, estimated_krw))
+    return money_round(estimated_krw)
+
+
+def apply_estimated_market_values(players, player_stats, clubs):
+    stats_by_player_id = {
+        int(item["player_id"]): item
+        for item in player_stats
+    }
+    league_by_club_id = {
+        int(club["club_id"]): int(club["league_id"])
+        for club in clubs
+    }
+
+    league_top_transfermarkt_krw = {1: 0.0, 2: 0.0}
+    for player in players:
+        source_type = str(player.get("value_source_type") or "")
+        if source_type not in {"TRANSFERMARKT", "MANUAL_CONFIRMED"}:
+            continue
+        league_id = league_by_club_id.get(int(player["club_id"]), int(player.get("league_id") or 2))
+        league_top_transfermarkt_krw[league_id] = max(
+            league_top_transfermarkt_krw.get(league_id, 0.0),
+            float(player.get("transfermarkt_value_krw") or 0.0),
+        )
+
+    estimated_count = 0
+    for player in players:
+        if str(player.get("value_source_type") or "") in {"TRANSFERMARKT", "MANUAL_CONFIRMED"}:
+            continue
+
+        club_id = int(player.get("club_id") or 0)
+        league_id = league_by_club_id.get(club_id, int(player.get("league_id") or 2))
+        player["league_id"] = league_id
+        stat_row = stats_by_player_id.get(int(player["player_id"]), {})
+        estimate = estimate_market_value_krw(
+            player,
+            stat_row,
+            league_top_transfermarkt_krw.get(league_id, 0.0),
+        )
+        player["market_value_krw"] = estimate
+        player["transfermarkt_value_krw"] = None
+        player["value_source_type"] = "ESTIMATED"
+        if player.get("value_source_url") in {None, "", NO_CONFIDENT_TRANSFERMARKT_MATCH}:
+            player["value_source_url"] = "ESTIMATED_FROM_PUBLIC_RECORDS_RULE"
+        estimated_count += 1
+
+    return estimated_count
 
 
 def parse_player_cards(html, fallback_position_group):
@@ -779,6 +1216,120 @@ def write_csv(path, rows, columns):
             writer.writerow({column: row.get(column, "") for column in columns})
 
 
+def read_sql_text(path):
+    text = path.read_text(encoding="utf-8-sig")
+    return text.replace("\ufeff", "")
+
+
+def build_dataset_from_local_files():
+    clubs = pd.read_csv(DATA_DIR / "cleaned_clubs.csv").to_dict("records")
+    managers = pd.read_csv(DATA_DIR / "managers.csv").to_dict("records")
+    players = pd.read_csv(DATA_DIR / "cleaned_players.csv").to_dict("records")
+    player_stats = pd.read_csv(DATA_DIR / "player_stats.csv").to_dict("records")
+    app_users = pd.read_csv(DATA_DIR / "app_users.csv").to_dict("records")
+    transfermarkt_values = pd.read_csv(DATA_DIR / "transfermarkt_values.csv").to_dict("records")
+    league_by_club_id = {
+        int(club["club_id"]): int(club["league_id"])
+        for club in clubs
+    }
+
+    existing_zero_count = sum(int(float(player.get("market_value_krw") or 0) == 0) for player in players)
+
+    for player in players:
+        player["league_id"] = league_by_club_id.get(int(player["club_id"]), 2)
+        player["market_value_krw"] = 0
+        player["transfermarkt_value_krw"] = None
+        player["value_source_type"] = "ESTIMATED"
+        player["value_source_url"] = NO_CONFIDENT_TRANSFERMARKT_MATCH
+
+    manual_rows = load_manual_transfermarkt_mapping()
+    match_summary = apply_transfermarkt_values(players, transfermarkt_values, manual_rows=manual_rows)
+    estimated_count = apply_estimated_market_values(players, player_stats, clubs)
+
+    manual_candidates = match_summary["manual_candidates"]
+    confirmed_rows = [row for row in manual_rows if is_manual_confirmed(row)]
+
+    merged_manual_rows = []
+    seen_manual_keys = set()
+    for row in confirmed_rows + manual_candidates:
+        key = (
+            str(row.get("player_id", "")).strip(),
+            str(row.get("transfermarkt_player_id", "")).strip(),
+        )
+        if key in seen_manual_keys:
+            continue
+        seen_manual_keys.add(key)
+        merged_manual_rows.append(row)
+
+    write_csv(
+        MANUAL_MAPPING_PATH,
+        merged_manual_rows,
+        [
+            "player_id",
+            "player_name",
+            "club_name",
+            "age",
+            "nationality",
+            "position_group",
+            "transfermarkt_player_id",
+            "transfermarkt_name",
+            "market_value_eur",
+            "value_source_url",
+            "confidence",
+            "note",
+        ],
+    )
+
+    contracts = []
+    transfer_market = []
+    for player in players:
+        market_value_krw = int(round(float(player.get("market_value_krw") or 0)))
+        contracts.append({
+            "player_id": player["player_id"],
+            "club_id": player["club_id"],
+            "start_date": "2026-01-01",
+            "end_date": "2028-01-01",
+            "salary_krw": money_round(max(market_value_krw * 0.08, 20000 * KRW_PER_EUR)),
+            "status": "active",
+        })
+
+        if market_value_krw > 0 and str(player.get("value_source_type") or "") in {"TRANSFERMARKT", "MANUAL_CONFIRMED"}:
+            transfer_market.append({
+                "listing_id": len(transfer_market) + 1,
+                "player_id": player["player_id"],
+                "seller_club_id": player["club_id"],
+                "asking_fee_krw": market_value_krw,
+                "listed_date": "2026-01-01",
+                "status": "listed",
+            })
+
+    for club in clubs:
+        for key in ["initial_budget_krw", "current_budget_krw"]:
+            if key in club and float(club[key]) < 1_000_000_000:
+                club[key] = int(round(float(club[key]) * KRW_PER_EUR))
+
+    remaining_unconfirmed = sum(int(float(player.get("market_value_krw") or 0) == 0) for player in players)
+    newly_matched = max(0, existing_zero_count - remaining_unconfirmed)
+    transfermarkt_count = sum(1 for player in players if str(player.get("value_source_type") or "") == "TRANSFERMARKT")
+    manual_confirmed_count = sum(1 for player in players if str(player.get("value_source_type") or "") == "MANUAL_CONFIRMED")
+
+    summary = {
+        "total_players": len(players),
+        "existing_zero_count": existing_zero_count,
+        "newly_matched": newly_matched,
+        "remaining_unconfirmed": remaining_unconfirmed,
+        "matched_total": match_summary["matched_total"],
+        "transfermarkt_count": transfermarkt_count,
+        "manual_confirmed_count": manual_confirmed_count,
+        "estimated_count": estimated_count,
+        "manual_candidates": manual_candidates,
+        "manual_applied": match_summary["manual_applied"],
+        "match_counts": match_summary["match_counts"],
+    }
+
+    return clubs, managers, players, player_stats, contracts, transfer_market, app_users, transfermarkt_values, summary
+
+
 def build_dml(clubs, managers, players, player_stats, contracts, transfer_market, app_users, transfermarkt_values):
     data_sources = [
         {"source_id": "SRC_KLEAGUE_OFFICIAL", "source_name": "K League official website", "source_url": "https://www.kleague.com/player.do", "used_for": "active K League 1 and K League 2 player rosters, official player profile fields, official 2026 public records"},
@@ -788,8 +1339,13 @@ def build_dml(clubs, managers, players, player_stats, contracts, transfer_market
     ]
     seasons = [{"season_id": 1, "season_name": "2026", "start_date": "2026-01-01", "status": "active"}]
 
+<<<<<<< HEAD
     player_columns = ["player_id", "source_player_id", "club_id", "original_club_id", "player_name", "nationality", "birth_date", "age", "position_group", "primary_position", "squad_number", "height_cm", "weight_kg", "preferred_foot", "market_value_krw", "contract_until", "joined_date", "profile_source_url", "value_source_url"]
     csv_player_columns = ["player_id", "source_player_id", "club_id", "club_name", "original_club_id", "player_name", "official_english_name", "nationality", "birth_date", "age", "position_group", "primary_position", "squad_number", "height_cm", "weight_kg", "preferred_foot", "market_value_krw", "contract_until", "joined_date", "profile_source_url", "value_source_url"]
+=======
+    player_columns = ["player_id", "source_player_id", "club_id", "original_club_id", "player_name", "nationality", "birth_date", "age", "position_group", "primary_position", "squad_number", "height_cm", "weight_kg", "preferred_foot", "transfermarkt_value_krw", "market_value_krw", "value_source_type", "contract_until", "joined_date", "profile_source_url", "value_source_url"]
+    csv_player_columns = ["player_id", "source_player_id", "club_id", "club_name", "league_id", "original_club_id", "player_name", "official_english_name", "nationality", "birth_date", "age", "position_group", "primary_position", "squad_number", "height_cm", "weight_kg", "preferred_foot", "transfermarkt_value_krw", "market_value_krw", "value_source_type", "contract_until", "joined_date", "profile_source_url", "value_source_url"]
+>>>>>>> 0d899d7 (several changes)
     transfermarkt_columns = ["transfermarkt_player_id", "transfermarkt_name", "league_id", "club_name", "age", "nationality", "primary_position", "position_group", "market_value_eur", "profile_source_url", "value_source_url", "source_page_url", "matched_player_id", "matched_player_name", "match_method"]
 
     parts = [
@@ -818,19 +1374,42 @@ def build_dml(clubs, managers, players, player_stats, contracts, transfer_market
 
     (ROOT / "kleague_dml.sql").write_text(dml + "\n", encoding="utf-8")
     (ROOT / "kleague_dml_kor.sql").write_text(dml + "\n", encoding="utf-8")
-    ddl = (ROOT / "kleague_ddl.sql").read_text(encoding="utf-8")
-    procedures = (ROOT / "kleague_procedures.sql").read_text(encoding="utf-8")
+    ddl = read_sql_text(ROOT / "kleague_ddl.sql")
+    procedures = read_sql_text(ROOT / "kleague_procedures.sql")
     (ROOT / "kleague_full_setup.sql").write_text(ddl.rstrip() + "\n\n" + dml.rstrip() + "\n\n" + procedures.rstrip() + "\n", encoding="utf-8")
 
 
 def main():
     DATA_DIR.mkdir(exist_ok=True)
-    clubs, managers, players, player_stats, contracts, transfer_market, app_users, transfermarkt_values = build_dataset()
+    (
+        clubs,
+        managers,
+        players,
+        player_stats,
+        contracts,
+        transfer_market,
+        app_users,
+        transfermarkt_values,
+        summary,
+    ) = build_dataset_from_local_files()
+
     build_dml(clubs, managers, players, player_stats, contracts, transfer_market, app_users, transfermarkt_values)
-    by_league = pd.DataFrame(players).merge(pd.DataFrame(clubs)[["club_id", "source_team_id"]], on="club_id")
-    matched_values = sum(1 for item in transfermarkt_values if item.get("matched_player_id"))
+
     print(f"Wrote {len(clubs)} clubs, {len(players)} players, {len(transfer_market)} market listings.")
-    print(f"Transfermarkt values: {matched_values}/{len(transfermarkt_values)} rows matched to K League official players.")
+    print("Transfermarkt matching summary:")
+    for method, count in summary["match_counts"].items():
+        print(f"  - {method}: {count}")
+    print(f"Manual confirmed mappings applied: {summary['manual_applied']}")
+    print(f"Total players: {summary['total_players']}")
+    print(f"Transfermarkt value players: {summary['transfermarkt_count']}")
+    print(f"Manual confirmed value players: {summary['manual_confirmed_count']}")
+    print(f"Estimated value players: {summary['estimated_count']}")
+    print(f"Existing market_value_krw=0 players: {summary['existing_zero_count']}")
+    print(f"Total matched players this run: {summary['matched_total']}")
+    print(f"Newly matched players: {summary['newly_matched']}")
+    print(f"market_value_krw = 0 players: {summary['remaining_unconfirmed']}")
+    print(f"Manual review candidate rows: {len(summary['manual_candidates'])}")
+    print("Arbitrary estimated values inserted: NO")
 
 
 if __name__ == "__main__":

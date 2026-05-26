@@ -44,7 +44,9 @@ COLUMN_MAPPING = {
     "player_name": "선수명",
     "primary_position": "주포지션",
     "nationality": "국적",
-    "market_value_krw": "Transfermarkt 몸값 (KRW 환산)",
+    "market_value_krw": "선수 가치 (원)",
+    "transfermarkt_value_krw": "Transfermarkt 확인 가치 (원)",
+    "value_source_type": "가치 출처",
     "appearances": "출전 횟수",
     "starts_estimated": "선발 추정",
     "goals": "득점",
@@ -214,7 +216,7 @@ def load_demo_tables():
         "club_id", "player_id", "original_club_id", "manager_id", "contract_id", "listing_id", "seller_club_id",
         "user_id", "season_id", "transfer_id", "battle_id", "home_club_id", "away_club_id",
         "age", "appearances", "starts_estimated", "goals", "assists", "shots", "yellow_cards", "red_cards",
-        "pace", "shooting", "passing", "defending", "physical", "overall", "market_value_krw",
+        "pace", "shooting", "passing", "defending", "physical", "overall", "market_value_krw", "transfermarkt_value_krw",
         "asking_fee_krw", "salary_krw", "initial_budget_krw", "current_budget_krw", "rating"
     }
     for df in [clubs, players, stats, contracts, market, users, managers]:
@@ -287,7 +289,7 @@ def demo_squad_score(tables):
 def demo_transfer_market(tables):
     market = tables["transfer_market"]
     available = market[market["status"] == "listed"].copy()
-    players = tables["players"][["player_id", "player_name", "position_group", "primary_position", "nationality", "age", "market_value_krw"]]
+    players = tables["players"][["player_id", "player_name", "position_group", "primary_position", "nationality", "age", "market_value_krw", "value_source_type"]]
     stats = tables["player_stats"][["player_id", "overall"]]
     clubs = tables["clubs"][["club_id", "club_name"]].rename(columns={"club_id": "seller_club_id", "club_name": "seller_club"})
     return (
@@ -954,6 +956,10 @@ def format_krw(value):
     return f"{amount:,.0f}원"
 
 
+def format_market_value_krw(value):
+    return format_krw(value)
+
+
 def format_krw_eok(value):
     amount = float(value or 0)
     sign = "-" if amount < 0 else ""
@@ -969,13 +975,13 @@ def prepare_display_df(df, drop_columns=None):
     if drop_columns:
         display_df = display_df.drop(columns=drop_columns, errors="ignore")
 
-    krw_columns = ["initial_budget_krw", "current_budget_krw", "total_spent_krw", "asking_fee_krw", "fee_krw"]
+    krw_columns = ["initial_budget_krw", "current_budget_krw", "total_spent_krw", "asking_fee_krw", "fee_krw", "transfermarkt_value_krw"]
     for column in krw_columns:
         if column in display_df.columns:
             display_df[column] = display_df[column].apply(format_krw)
 
     if "market_value_krw" in display_df.columns:
-        display_df["market_value_krw"] = display_df["market_value_krw"].apply(format_krw)
+        display_df["market_value_krw"] = display_df["market_value_krw"].apply(format_market_value_krw)
 
     if "salary_krw" in display_df.columns:
         display_df["salary_krw"] = display_df["salary_krw"].apply(format_krw)
@@ -1863,6 +1869,7 @@ elif page == "내 스쿼드":
                position_group,
                primary_position,
                nationality,
+               value_source_type,
                market_value_krw,
                appearances,
                goals,
@@ -2250,8 +2257,8 @@ elif page == "이적 시장":
 
     st.subheader("영입 가능한 선수 목록")
     st.caption(
-        "선수단/기록은 K League 공식 공개 데이터, 몸값은 Transfermarkt 공개 market value를 사용합니다. "
-        "공식 영문명과 구단 기준으로 확실히 매칭된 선수만 기본 이적시장에 표시되며, 요구 이적료는 market value와 동일하게 원화 환산됩니다."
+        "선수단/기록은 K League 공식 공개 데이터를 사용합니다. "
+        "Transfermarkt 확인값이 있으면 그대로 사용하고, 없는 선수는 공개 기록 기반 추정값을 사용합니다."
     )
 
     if "transfer_result" in st.session_state:
@@ -2271,6 +2278,7 @@ elif page == "이적 시장":
                vm.position_group,
                vm.primary_position,
                vm.nationality,
+               vm.value_source_type,
                vm.overall,
                vm.seller_club,
                vm.asking_fee_krw,
@@ -2375,6 +2383,7 @@ elif page == "이적 시장":
                     "position_group",
                     "primary_position",
                     "nationality",
+                    "value_source_type",
                     "overall",
                     "seller_club",
                     "asking_fee_krw",
