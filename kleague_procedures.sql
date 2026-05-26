@@ -69,6 +69,18 @@ BEGIN
         SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Cannot buy a player from your own club';
     END IF;
 
+    -- Lock both club rows first so concurrent transfers on the same seller serialise here
+    SELECT current_budget_krw INTO v_buyer_budget
+    FROM clubs
+    WHERE club_id = v_buyer_club_id
+    FOR UPDATE;
+
+    SELECT club_id INTO @v_seller_lock
+    FROM clubs
+    WHERE club_id = v_seller_club_id
+    FOR UPDATE;
+
+    -- Squad count is now stable: seller club row is locked above
     SELECT COUNT(*) INTO v_seller_squad_count
     FROM players
     WHERE club_id = v_seller_club_id;
@@ -76,11 +88,6 @@ BEGIN
     IF v_seller_squad_count <= 11 THEN
         SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Seller club must keep at least 11 players';
     END IF;
-
-    SELECT current_budget_krw INTO v_buyer_budget
-    FROM clubs
-    WHERE club_id = v_buyer_club_id
-    FOR UPDATE;
 
     IF v_buyer_budget < v_fee THEN
         SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Not enough budget';
@@ -100,7 +107,7 @@ BEGIN
     WHERE player_id = v_player_id AND status = 'active';
 
     INSERT INTO contracts (player_id, club_id, start_date, end_date, salary_krw, status)
-    VALUES (v_player_id, v_buyer_club_id, CURDATE(), DATE_ADD(CURDATE(), INTERVAL 2 YEAR), GREATEST(v_fee * 0.08, 20000), 'active');
+    VALUES (v_player_id, v_buyer_club_id, CURDATE(), DATE_ADD(CURDATE(), INTERVAL 2 YEAR), GREATEST(ROUND(v_fee * 0.08, 2), 35226000), 'active');
 
     UPDATE players
     SET club_id = v_buyer_club_id,
@@ -158,6 +165,13 @@ BEGIN
     DECLARE v_home_count INT;
     DECLARE v_away_count INT;
     DECLARE v_active_season_id INT;
+    DECLARE v_battle_id BIGINT;
+
+    DECLARE EXIT HANDLER FOR SQLEXCEPTION
+    BEGIN
+        ROLLBACK;
+        RESIGNAL;
+    END;
 
     IF p_home_club_id = p_away_club_id THEN
         SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'Home and away clubs must be different';
@@ -200,13 +214,19 @@ BEGIN
         SET v_result = 'draw';
     END IF;
 
+    START TRANSACTION;
+
     INSERT INTO squad_battles
         (home_club_id, away_club_id, home_score, away_score, result, battle_date, season_id)
     VALUES
         (p_home_club_id, p_away_club_id, p_home_score, p_away_score, v_result, CURDATE(), v_active_season_id);
 
+    SET v_battle_id = LAST_INSERT_ID();
+
+    COMMIT;
+
     SELECT
-        LAST_INSERT_ID() AS battle_id,
+        v_battle_id AS battle_id,
         p_home_club_id AS home_club_id,
         p_away_club_id AS away_club_id,
         p_home_score AS home_score,

@@ -1,5 +1,5 @@
 source_id,source_name,source_url,used_for
 SRC_KLEAGUE_OFFICIAL,K League official website,https://www.kleague.com/player.do,"active K League 1 and K League 2 player rosters, official player profile fields, official 2026 public records"
-SRC_TRANSFERMARKT_K1,Transfermarkt K League 1 market values,https://www.transfermarkt.com/k-league-1/marktwerte/wettbewerb/RSK1,public player market values; inserted only when confidently matched to the K League official roster
-SRC_TRANSFERMARKT_K2,Transfermarkt K League 2 market values,https://www.transfermarkt.com/k-league-2/marktwerte/wettbewerb/RSK2,public player market values; inserted only when confidently matched to the K League official roster
+SRC_TRANSFERMARKT_K1,Transfermarkt K League 1 market values,https://www.transfermarkt.com/k-league-1/marktwerte/wettbewerb/RSK1,public player market values; inserted only when confidently matched to the K League official roster; EUR converted at 1 EUR = 1761.3 KRW
+SRC_TRANSFERMARKT_K2,Transfermarkt K League 2 market values,https://www.transfermarkt.com/k-league-2/marktwerte/wettbewerb/RSK2,public player market values; inserted only when confidently matched to the K League official roster; EUR converted at 1 EUR = 1761.3 KRW
 SRC_SIM_RULE,Simulation rules,local project rule,"budgets, salary estimates, player ratings, manager ratings, squad scores, and recommendation rules; player market values are not estimated locally"

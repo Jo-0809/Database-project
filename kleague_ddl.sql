@@ -263,18 +263,18 @@ SELECT
     COUNT(r.player_id) AS player_count,
     ROUND(AVG(r.overall), 2) AS avg_player_overall,
     ROUND(AVG(CASE WHEN r.squad_rank <= 11 THEN r.overall END), 2) AS starting11_avg,
-    ROUND(COALESCE(AVG(CASE WHEN r.squad_rank BETWEEN 12 AND 18 THEN r.overall END), 0), 2) AS bench_avg,
-    SUM(CASE WHEN r.squad_rank BETWEEN 12 AND 18 THEN 1 ELSE 0 END) AS bench_count,
+    ROUND(COALESCE(AVG(CASE WHEN r.squad_rank BETWEEN 12 AND 16 THEN r.overall END), 0), 2) AS bench_avg,
+    SUM(CASE WHEN r.squad_rank BETWEEN 12 AND 16 THEN 1 ELSE 0 END) AS bench_count,
     m.rating AS manager_rating,
     ROUND(
         CASE
             WHEN COUNT(r.player_id) < 11 THEN 0
             ELSE
-                COALESCE(AVG(CASE WHEN r.squad_rank <= 11 THEN r.overall END), 0) * 0.82
-                + m.rating * 0.14
+                COALESCE(AVG(CASE WHEN r.squad_rank <= 11 THEN r.overall END), 0) * 0.90
+                + m.rating * 0.09
                 + CASE
-                    WHEN SUM(CASE WHEN r.squad_rank BETWEEN 12 AND 18 THEN 1 ELSE 0 END) > 0
-                    THEN COALESCE(AVG(CASE WHEN r.squad_rank BETWEEN 12 AND 18 THEN r.overall END), 0) * 0.02
+                    WHEN SUM(CASE WHEN r.squad_rank BETWEEN 12 AND 16 THEN 1 ELSE 0 END) > 0
+                    THEN COALESCE(AVG(CASE WHEN r.squad_rank BETWEEN 12 AND 16 THEN r.overall END), 0) * 0.01
                     ELSE 0
                   END
         END,

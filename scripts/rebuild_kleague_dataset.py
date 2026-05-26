@@ -18,6 +18,7 @@ DATA_DIR = ROOT / "data"
 BASE_URL = "https://www.kleague.com"
 TRANSFERMARKT_BASE_URL = "https://www.transfermarkt.com"
 REFERENCE_DATE = date(2026, 5, 26)
+EUR_TO_KRW = 1761.3
 
 FIELD_NAME = "\uc774\ub984"
 FIELD_ENGLISH_NAME = "\uc601\ubb38\uba85"
@@ -95,6 +96,10 @@ def money_round(value):
     return int(round(float(value) / 10000) * 10000)
 
 
+def eur_to_krw(value):
+    return int(round(float(value or 0) * EUR_TO_KRW))
+
+
 def sql_str(value):
     if value is None or (isinstance(value, float) and math.isnan(value)) or value == "":
         return "NULL"
@@ -111,11 +116,11 @@ def row_values(row, columns):
     numeric_columns = {
         "club_id", "original_club_id", "founded_year", "stadium_capacity",
         "league_id",
-        "initial_budget_eur", "current_budget_eur", "age", "squad_number",
-        "height_cm", "weight_kg", "market_value_eur", "appearances",
+        "initial_budget_krw", "current_budget_krw", "age", "squad_number",
+        "height_cm", "weight_kg", "market_value_krw", "appearances",
         "starts_estimated", "goals", "assists", "shots", "yellow_cards",
         "red_cards", "pace", "shooting", "passing", "defending", "physical",
-        "salary_eur", "asking_fee_eur", "listing_id", "manager_id", "rating",
+        "salary_krw", "asking_fee_krw", "listing_id", "manager_id", "rating",
         "season_id", "player_id", "seller_club_id", "user_id",
     }
     values = []
@@ -639,8 +644,8 @@ def build_dataset():
             "founded_year": team["founded_year"],
             "stadium_name": team["stadium_name"],
             "stadium_capacity": team["stadium_capacity"],
-            "initial_budget_eur": team["budget"],
-            "current_budget_eur": team["budget"],
+            "initial_budget_krw": eur_to_krw(team["budget"]),
+            "current_budget_krw": eur_to_krw(team["budget"]),
             "club_homepage": team["homepage"],
             "data_source_url": f"{BASE_URL}/player.do?leagueId={team['league_id']}&teamId={team['source_team_id']}&type=active",
         })
@@ -681,6 +686,7 @@ def build_dataset():
             "weight_kg": weight,
             "preferred_foot": old_player.get("preferred_foot") or "Unknown",
             "market_value_eur": 0,
+            "market_value_krw": 0,
             "contract_until": None,
             "joined_date": "2026-01-01",
             "profile_source_url": f"{BASE_URL}/record/playerDetail.do?playerId={card['player_id']}",
@@ -725,12 +731,13 @@ def build_dataset():
     print(f"Matched {matched_count} K League players to Transfermarkt market values.")
 
     for row in players:
+        row["market_value_krw"] = eur_to_krw(row["market_value_eur"])
         contracts.append({
             "player_id": row["player_id"],
             "club_id": row["club_id"],
             "start_date": "2026-01-01",
             "end_date": "2028-01-01",
-            "salary_eur": money_round(max(row["market_value_eur"] * 0.08, 20000)),
+            "salary_krw": eur_to_krw(money_round(max(row["market_value_eur"] * 0.08, 20000))),
             "status": "active",
         })
         if row["market_value_eur"] > 0:
@@ -738,9 +745,9 @@ def build_dataset():
                 "listing_id": len(transfer_market) + 1,
                 "player_id": row["player_id"],
                 "seller_club_id": row["club_id"],
-                "asking_fee_eur": row["market_value_eur"],
+                "asking_fee_krw": row["market_value_krw"],
                 "listed_date": "2026-01-01",
-                "status": "available",
+                "status": "listed",
             })
 
     managers = []
@@ -775,37 +782,37 @@ def write_csv(path, rows, columns):
 def build_dml(clubs, managers, players, player_stats, contracts, transfer_market, app_users, transfermarkt_values):
     data_sources = [
         {"source_id": "SRC_KLEAGUE_OFFICIAL", "source_name": "K League official website", "source_url": "https://www.kleague.com/player.do", "used_for": "active K League 1 and K League 2 player rosters, official player profile fields, official 2026 public records"},
-        {"source_id": "SRC_TRANSFERMARKT_K1", "source_name": "Transfermarkt K League 1 market values", "source_url": "https://www.transfermarkt.com/k-league-1/marktwerte/wettbewerb/RSK1", "used_for": "public player market values; inserted only when confidently matched to the K League official roster"},
-        {"source_id": "SRC_TRANSFERMARKT_K2", "source_name": "Transfermarkt K League 2 market values", "source_url": "https://www.transfermarkt.com/k-league-2/marktwerte/wettbewerb/RSK2", "used_for": "public player market values; inserted only when confidently matched to the K League official roster"},
+        {"source_id": "SRC_TRANSFERMARKT_K1", "source_name": "Transfermarkt K League 1 market values", "source_url": "https://www.transfermarkt.com/k-league-1/marktwerte/wettbewerb/RSK1", "used_for": f"public player market values; inserted only when confidently matched to the K League official roster; EUR converted at 1 EUR = {EUR_TO_KRW} KRW"},
+        {"source_id": "SRC_TRANSFERMARKT_K2", "source_name": "Transfermarkt K League 2 market values", "source_url": "https://www.transfermarkt.com/k-league-2/marktwerte/wettbewerb/RSK2", "used_for": f"public player market values; inserted only when confidently matched to the K League official roster; EUR converted at 1 EUR = {EUR_TO_KRW} KRW"},
         {"source_id": "SRC_SIM_RULE", "source_name": "Simulation rules", "source_url": "local project rule", "used_for": "budgets, salary estimates, player ratings, manager ratings, squad scores, and recommendation rules; player market values are not estimated locally"},
     ]
     seasons = [{"season_id": 1, "season_name": "2026", "start_date": "2026-01-01", "status": "active"}]
 
-    player_columns = ["player_id", "source_player_id", "club_id", "original_club_id", "player_name", "nationality", "birth_date", "age", "position_group", "primary_position", "squad_number", "height_cm", "weight_kg", "preferred_foot", "market_value_eur", "contract_until", "joined_date", "profile_source_url", "value_source_url"]
-    csv_player_columns = ["player_id", "source_player_id", "club_id", "club_name", "original_club_id", "player_name", "official_english_name", "nationality", "birth_date", "age", "position_group", "primary_position", "squad_number", "height_cm", "weight_kg", "preferred_foot", "market_value_eur", "contract_until", "joined_date", "profile_source_url", "value_source_url"]
+    player_columns = ["player_id", "source_player_id", "club_id", "original_club_id", "player_name", "nationality", "birth_date", "age", "position_group", "primary_position", "squad_number", "height_cm", "weight_kg", "preferred_foot", "market_value_krw", "contract_until", "joined_date", "profile_source_url", "value_source_url"]
+    csv_player_columns = ["player_id", "source_player_id", "club_id", "club_name", "original_club_id", "player_name", "official_english_name", "nationality", "birth_date", "age", "position_group", "primary_position", "squad_number", "height_cm", "weight_kg", "preferred_foot", "market_value_krw", "contract_until", "joined_date", "profile_source_url", "value_source_url"]
     transfermarkt_columns = ["transfermarkt_player_id", "transfermarkt_name", "league_id", "club_name", "age", "nationality", "primary_position", "position_group", "market_value_eur", "profile_source_url", "value_source_url", "source_page_url", "matched_player_id", "matched_player_name", "match_method"]
 
     parts = [
         "USE kleague_db;",
         insert_sql("data_sources", ["source_id", "source_name", "source_url", "used_for"], data_sources),
-        insert_sql("clubs", ["club_id", "source_team_id", "league_id", "league_name", "club_name", "city", "founded_year", "stadium_name", "stadium_capacity", "initial_budget_eur", "current_budget_eur", "club_homepage", "data_source_url"], clubs),
+        insert_sql("clubs", ["club_id", "source_team_id", "league_id", "league_name", "club_name", "city", "founded_year", "stadium_name", "stadium_capacity", "initial_budget_krw", "current_budget_krw", "club_homepage", "data_source_url"], clubs),
         insert_sql("managers", ["manager_id", "club_id", "manager_name", "nationality", "preferred_formation", "rating", "rating_source"], managers),
         insert_sql("seasons", ["season_id", "season_name", "start_date", "status"], seasons),
         insert_sql("players", player_columns, players),
         insert_sql("player_stats", ["player_id", "appearances", "starts_estimated", "goals", "assists", "shots", "yellow_cards", "red_cards", "pace", "shooting", "passing", "defending", "physical", "rating_source"], player_stats),
-        insert_sql("contracts", ["player_id", "club_id", "start_date", "end_date", "salary_eur", "status"], contracts),
-        insert_sql("transfer_market", ["listing_id", "player_id", "seller_club_id", "asking_fee_eur", "listed_date", "status"], transfer_market),
+        insert_sql("contracts", ["player_id", "club_id", "start_date", "end_date", "salary_krw", "status"], contracts),
+        insert_sql("transfer_market", ["listing_id", "player_id", "seller_club_id", "asking_fee_krw", "listed_date", "status"], transfer_market),
         insert_sql("app_users", ["user_id", "username", "club_id"], app_users),
     ]
     dml = "\n\n".join(part for part in parts if part)
 
     write_csv(DATA_DIR / "data_sources.csv", data_sources, ["source_id", "source_name", "source_url", "used_for"])
-    write_csv(DATA_DIR / "cleaned_clubs.csv", clubs, ["club_id", "source_team_id", "league_id", "league_name", "club_name", "city", "founded_year", "stadium_name", "stadium_capacity", "initial_budget_eur", "current_budget_eur", "club_homepage", "data_source_url"])
+    write_csv(DATA_DIR / "cleaned_clubs.csv", clubs, ["club_id", "source_team_id", "league_id", "league_name", "club_name", "city", "founded_year", "stadium_name", "stadium_capacity", "initial_budget_krw", "current_budget_krw", "club_homepage", "data_source_url"])
     write_csv(DATA_DIR / "managers.csv", managers, ["manager_id", "club_id", "manager_name", "nationality", "preferred_formation", "rating", "rating_source"])
     write_csv(DATA_DIR / "cleaned_players.csv", players, csv_player_columns)
     write_csv(DATA_DIR / "player_stats.csv", player_stats, ["player_id", "appearances", "starts_estimated", "goals", "assists", "shots", "yellow_cards", "red_cards", "pace", "shooting", "passing", "defending", "physical", "rating_source"])
-    write_csv(DATA_DIR / "contracts.csv", contracts, ["player_id", "club_id", "start_date", "end_date", "salary_eur", "status"])
-    write_csv(DATA_DIR / "transfer_market.csv", transfer_market, ["listing_id", "player_id", "seller_club_id", "asking_fee_eur", "listed_date", "status"])
+    write_csv(DATA_DIR / "contracts.csv", contracts, ["player_id", "club_id", "start_date", "end_date", "salary_krw", "status"])
+    write_csv(DATA_DIR / "transfer_market.csv", transfer_market, ["listing_id", "player_id", "seller_club_id", "asking_fee_krw", "listed_date", "status"])
     write_csv(DATA_DIR / "app_users.csv", app_users, ["user_id", "username", "club_id"])
     write_csv(DATA_DIR / "transfermarkt_values.csv", transfermarkt_values, transfermarkt_columns)
 

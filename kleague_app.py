@@ -4,8 +4,9 @@ import warnings
 import pandas as pd
 import pymysql
 import streamlit as st
-import streamlit.components.v1 as components
 
+
+MIN_CONTRACT_SALARY_KRW = 35_226_000
 
 warnings.filterwarnings(
     "ignore",
@@ -17,7 +18,7 @@ DB_CONFIG = {
     "host": os.getenv("MYSQL_HOST", "localhost"),
     "port": int(os.getenv("MYSQL_PORT", "3306")),
     "user": os.getenv("MYSQL_USER", "root"),
-    "password": os.getenv("MYSQL_PASSWORD", "1234"),
+    "password": os.getenv("MYSQL_PASSWORD", ""),
     "database": os.getenv("MYSQL_DATABASE", "kleague_db"),
     "charset": "utf8mb4",
     "cursorclass": pymysql.cursors.Cursor,
@@ -166,6 +167,8 @@ FORMATION_POSITIONS = {
     ],
 }
 
+FORMATION_CYCLE = list(FORMATION_POSITIONS.keys())
+
 ROLE_ATTRIBUTE_WEIGHTS = {
     "GK": {"pace": 0.08, "shooting": 0.02, "passing": 0.20, "defending": 0.45, "physical": 0.25},
     "DF": {"pace": 0.15, "shooting": 0.03, "passing": 0.12, "defending": 0.45, "physical": 0.25},
@@ -259,8 +262,8 @@ def demo_squad_score(tables):
         player_count=("player_id", "count"),
         avg_player_overall=("overall", "mean"),
         starting11_avg=("overall", lambda values: values.head(11).mean()),
-        bench_avg=("overall", lambda values: values.iloc[11:18].mean() if len(values) > 11 else 0),
-        bench_count=("overall", lambda values: max(0, min(len(values) - 11, 7))),
+        bench_avg=("overall", lambda values: values.iloc[11:16].mean() if len(values) > 11 else 0),
+        bench_count=("overall", lambda values: max(0, min(len(values) - 11, 5))),
     )
     managers = tables["managers"][["club_id", "manager_name", "preferred_formation", "rating"]]
     df = grouped.merge(managers, on="club_id", how="left")
@@ -269,9 +272,9 @@ def demo_squad_score(tables):
     df["bench_avg"] = df["bench_avg"].fillna(0).round(2)
     df["manager_rating"] = df["rating"]
     df["squad_score"] = (
-        df["starting11_avg"] * 0.82
-        + df["manager_rating"] * 0.14
-        + df["bench_avg"].where(df["bench_count"] > 0, 0) * 0.02
+        df["starting11_avg"] * 0.90
+        + df["manager_rating"] * 0.09
+        + df["bench_avg"].where(df["bench_count"] > 0, 0) * 0.01
     ).round(2)
     df.loc[df["player_count"] < 11, "squad_score"] = 0
     return df[[
@@ -631,11 +634,11 @@ def reset_simulation_data():
                        p.original_club_id,
                        '2026-01-01',
                        '2028-01-01',
-                       GREATEST(ROUND(p.market_value_krw * 0.08, 2), 20000),
+                       GREATEST(ROUND(p.market_value_krw * 0.08, 2), %s),
                        'active'
                 FROM players p
                 WHERE p.original_club_id IS NOT NULL
-            """)
+            """, (MIN_CONTRACT_SALARY_KRW,))
             cur.execute("DELETE FROM audit_logs")
 
         conn.commit()
@@ -864,13 +867,13 @@ def calculate_team_score(squad_df, formation, lineup, manager_rating):
     bench_df = squad_df[
         ~squad_df["player_id"].astype(int).isin(selected_ids)
     ].sort_values("overall", ascending=False)
-    bench_count = min(len(bench_df), 7)
-    bench_avg = float(bench_df.head(7)["overall"].mean()) if bench_count else 0
+    bench_count = min(len(bench_df), 5)
+    bench_avg = float(bench_df.head(bench_count)["overall"].mean()) if bench_count else 0
     total_score = (
-        avg_slot_score * 0.76
+        avg_slot_score * 0.78
         + formation_fit * 0.12
-        + float(manager_rating) * 0.10
-        + (bench_avg * 0.02 if bench_count else 0)
+        + float(manager_rating) * 0.09
+        + (bench_avg * 0.01 if bench_count else 0)
     )
     if selected_count < 11:
         total_score *= selected_count / 11
@@ -984,13 +987,13 @@ def inject_global_styles():
     st.markdown("""
     <style>
     :root {
-        --dbpbl-bg: #07110d;
-        --dbpbl-panel: #0d1713;
-        --dbpbl-panel-soft: #111c17;
-        --dbpbl-green: #087333;
-        --dbpbl-green-soft: #0f8f45;
-        --dbpbl-gold: #f5c400;
-        --dbpbl-line: rgba(245, 196, 0, 0.28);
+        --dbpbl-bg: #0b0f12;
+        --dbpbl-panel: #111820;
+        --dbpbl-panel-soft: #16212a;
+        --dbpbl-green: #11834a;
+        --dbpbl-green-soft: #1f9d5c;
+        --dbpbl-gold: #d8b539;
+        --dbpbl-line: rgba(216, 181, 57, 0.30);
         --dbpbl-text: #f8fafc;
         --dbpbl-muted: #cbd5e1;
     }
@@ -1002,7 +1005,7 @@ def inject_global_styles():
     }
 
     .stApp {
-        background: #07110d;
+        background: var(--dbpbl-bg);
         color: var(--dbpbl-text);
     }
 
@@ -1040,14 +1043,60 @@ def inject_global_styles():
     }
 
     .block-container {
-        padding-top: 1.4rem;
+        padding-top: 1.1rem;
         padding-bottom: 3rem;
-        max-width: 1320px;
+        padding-left: clamp(1rem, 2vw, 2rem);
+        padding-right: clamp(1rem, 2vw, 2rem);
+        max-width: 1240px;
     }
 
     [data-testid="stSidebar"] {
-        background: #0d1713;
-        border-right: 1px solid rgba(245, 196, 0, 0.18);
+        background: var(--dbpbl-panel);
+        border-right: 1px solid rgba(216, 181, 57, 0.18);
+    }
+
+    [data-testid="stSidebarContent"] {
+        padding-top: 1rem !important;
+        padding-bottom: 1rem !important;
+    }
+
+    [data-testid="stSidebarUserContent"] {
+        flex: 0 0 auto !important;
+        height: auto !important;
+        overflow-y: visible !important;
+    }
+
+    [data-testid="stSidebarUserContent"] > div {
+        flex: 0 0 auto !important;
+        height: auto !important;
+    }
+
+    [data-testid="stSidebar"] .stVerticalBlock {
+        gap: 0.25rem !important;
+        flex: 0 0 auto !important;
+        min-height: unset !important;
+        height: auto !important;
+    }
+
+    [data-testid="stSidebar"] .element-container {
+        margin-top: 0 !important;
+        margin-bottom: 0 !important;
+        flex: 0 0 auto !important;
+    }
+
+    [data-testid="stSidebar"] [data-testid="stRadio"] {
+        margin-top: 0 !important;
+        margin-bottom: 0 !important;
+        padding-bottom: 0 !important;
+    }
+
+    [data-testid="stSidebar"] [data-testid="stMarkdown"] {
+        margin-top: 0 !important;
+        margin-bottom: 0 !important;
+    }
+
+    [data-testid="stSidebar"] [data-testid="stButton"] {
+        margin-top: 0 !important;
     }
 
     [data-testid="stSidebar"] [data-testid="stMetric"] {
@@ -1063,8 +1112,8 @@ def inject_global_styles():
     }
 
     .dbpbl-sidebar-card {
-        background: #111c17;
-        border: 1px solid rgba(245, 196, 0, 0.18);
+        background: var(--dbpbl-panel-soft);
+        border: 1px solid rgba(216, 181, 57, 0.18);
         border-radius: 8px;
         padding: 0.85rem 0.95rem;
         margin: 0.75rem 0;
@@ -1108,12 +1157,12 @@ def inject_global_styles():
     .dbpbl-hero {
         position: relative;
         overflow: hidden;
-        border: 1px solid rgba(245, 196, 0, 0.42);
+        border: 1px solid rgba(216, 181, 57, 0.38);
         border-radius: 8px;
-        padding: 22px 26px;
+        padding: 20px 24px;
         margin: 0.3rem 0 1.35rem 0;
-        background: #0c2017;
-        box-shadow: 0 22px 50px rgba(0, 0, 0, 0.35);
+        background: #101922;
+        box-shadow: 0 18px 42px rgba(0, 0, 0, 0.32);
     }
 
     .dbpbl-hero::after {
@@ -1131,10 +1180,12 @@ def inject_global_styles():
 
     .dbpbl-hero h1 {
         color: white;
-        font-size: clamp(2.15rem, 4.2vw, 4.1rem);
-        line-height: 1.05;
+        font-size: clamp(1.75rem, 3.2vw, 3.35rem);
+        line-height: 1.08;
         margin: 0;
         font-weight: 950;
+        overflow-wrap: anywhere;
+        word-break: keep-all;
     }
 
     .dbpbl-hero p {
@@ -1153,7 +1204,7 @@ def inject_global_styles():
 
     .dbpbl-hero-chip,
     .dbpbl-stat-card {
-        background: rgba(8, 14, 12, 0.72);
+        background: rgba(11, 15, 18, 0.76);
         border: 1px solid rgba(255, 255, 255, 0.12);
         border-radius: 8px;
         padding: 13px 15px;
@@ -1175,9 +1226,9 @@ def inject_global_styles():
         color: white;
         font-size: 1.08rem;
         font-weight: 900;
-        white-space: nowrap;
-        overflow: hidden;
-        text-overflow: ellipsis;
+        white-space: normal;
+        overflow-wrap: anywhere;
+        word-break: keep-all;
     }
 
     .dbpbl-stat-grid {
@@ -1185,8 +1236,8 @@ def inject_global_styles():
     }
 
     .dbpbl-stat-card {
-        background: #111c17;
-        border: 1px solid rgba(245, 196, 0, 0.18);
+        background: var(--dbpbl-panel-soft);
+        border: 1px solid rgba(216, 181, 57, 0.18);
         box-shadow: 0 14px 28px rgba(0, 0, 0, 0.24);
     }
 
@@ -1198,8 +1249,8 @@ def inject_global_styles():
     }
 
     div[data-testid="stMetric"] {
-        background: #111c17;
-        border: 1px solid rgba(245, 196, 0, 0.20);
+        background: var(--dbpbl-panel-soft);
+        border: 1px solid rgba(216, 181, 57, 0.20);
         border-radius: 8px;
         padding: 0.8rem 0.95rem;
         box-shadow: 0 10px 24px rgba(0, 0, 0, 0.18);
@@ -1213,9 +1264,9 @@ def inject_global_styles():
 
     .stButton > button {
         border-radius: 8px;
-        border: 1px solid rgba(245, 196, 0, 0.45);
-        background: #f5c400;
-        color: #07110d;
+        border: 1px solid rgba(216, 181, 57, 0.45);
+        background: var(--dbpbl-gold);
+        color: #0b0f12;
         font-weight: 900;
         box-shadow: 0 10px 22px rgba(245, 196, 0, 0.18);
         transition: transform 120ms ease, box-shadow 120ms ease, border-color 120ms ease;
@@ -1243,8 +1294,8 @@ def inject_global_styles():
 
     div[data-baseweb="select"] > div,
     [data-testid="stTextInput"] input {
-        background-color: #111c17;
-        border-color: rgba(245, 196, 0, 0.24);
+        background-color: var(--dbpbl-panel-soft);
+        border-color: rgba(216, 181, 57, 0.24);
         border-radius: 8px;
     }
 
@@ -1254,8 +1305,8 @@ def inject_global_styles():
     }
 
     .dbpbl-section-card {
-        background: #111c17;
-        border: 1px solid rgba(245, 196, 0, 0.16);
+        background: var(--dbpbl-panel-soft);
+        border: 1px solid rgba(216, 181, 57, 0.16);
         border-radius: 8px;
         padding: 16px 18px;
         margin: 0.65rem 0 1rem;
@@ -1354,10 +1405,18 @@ def inject_global_styles():
         }
     }
 
-    @media (max-width: 560px) {
+    @media (max-width: 700px) {
         .dbpbl-hero-stats,
         .dbpbl-stat-grid {
             grid-template-columns: 1fr;
+        }
+
+        .dbpbl-hero {
+            padding: 18px 20px;
+        }
+
+        .dbpbl-hero-stats {
+            display: none;
         }
     }
     </style>
@@ -1957,9 +2016,15 @@ elif page == "내 스쿼드":
 
     lineup_key = f"lineup_{my_club_id}_active"
     formation_state_key = f"{lineup_key}_formation"
+
+    def reset_lineup_widget_state():
+        for pos in current_positions:
+            st.session_state.pop(f"{lineup_key}_{formation}_{pos['slot']}", None)
+
     if lineup_key not in st.session_state:
         st.session_state[lineup_key] = recommended_lineup()
         st.session_state[formation_state_key] = formation
+        reset_lineup_widget_state()
     elif st.session_state.get(formation_state_key) != formation:
         st.session_state[lineup_key] = remap_lineup_to_formation(
             squad_df,
@@ -1967,6 +2032,7 @@ elif page == "내 스쿼드":
             formation
         )
         st.session_state[formation_state_key] = formation
+        reset_lineup_widget_state()
 
     col_a, col_b, col_c = st.columns([1, 1, 1])
     with col_a:
@@ -1974,7 +2040,7 @@ elif page == "내 스쿼드":
             st.session_state[lineup_key] = recommended_lineup()
             st.session_state[formation_state_key] = formation
             for pos in current_positions:
-                st.session_state[f"{lineup_key}_{formation}_{pos['slot']}"] = st.session_state[lineup_key].get(pos["slot"])
+                st.session_state.pop(f"{lineup_key}_{formation}_{pos['slot']}", None)
             st.rerun()
     with col_b:
         if st.button("배치 비우기"):
@@ -1984,7 +2050,7 @@ elif page == "내 스쿼드":
             }
             st.session_state[formation_state_key] = formation
             for pos in current_positions:
-                st.session_state[f"{lineup_key}_{formation}_{pos['slot']}"] = None
+                st.session_state.pop(f"{lineup_key}_{formation}_{pos['slot']}", None)
             st.rerun()
     with col_c:
         if st.button("포메이션 저장"):
@@ -2042,6 +2108,8 @@ elif page == "내 스쿼드":
 
         with selector_columns[idx % 4]:
             widget_key = f"{lineup_key}_{formation}_{slot}"
+            if widget_key in st.session_state and st.session_state[widget_key] not in options:
+                st.session_state.pop(widget_key, None)
             current_lineup[slot] = st.selectbox(
                 f"{slot} ({pos['group']})",
                 options,
@@ -2065,7 +2133,7 @@ elif page == "내 스쿼드":
     metric_cols[3].metric("후보 기여", f"{lineup_metrics['bench_avg']:.2f}", f"{lineup_metrics['bench_count']}명 반영")
 
     st.caption(
-        f"점수 = 주전 배치 평균 76% + 포메이션 적합도 12% + 감독 능력치 10% + 후보 상위 7명 2%. 배치 완료 {lineup_metrics['selected_count']}/11"
+        f"점수 = 주전 배치 평균 78% + 포메이션 적합도 12% + 감독 능력치 9% + 후보 상위 5명 1%. 배치 완료 {lineup_metrics['selected_count']}/11"
     )
 
     pitch_html = """
@@ -2174,7 +2242,7 @@ elif page == "내 스쿼드":
 
     pitch_html += "</div>"
 
-    components.html(pitch_html, height=950)
+    st.html(pitch_html)
     
     
 
@@ -2328,8 +2396,6 @@ elif page == "이적 시장":
             f"{row.player_name} | {row.position_group} | OVR {row.overall} | {row.seller_club} | {format_krw(row.asking_fee_krw)}": int(row.listing_id)
             for row in filtered_market_df.itertuples()
         }
-
-        st.info("전체 선수단 데이터 기준에서는 영입 시 자동 방출이 필요하지 않습니다. 예산과 최소 11명 규칙만 검증합니다.")
 
         selected = st.selectbox(
             "영입할 매물 선택",
@@ -2593,7 +2659,7 @@ elif page == "스쿼드 배틀":
         )
 
     st.caption(
-        "배틀 점수 = 주전 배치 평균 76% + 포메이션 적합도 12% + 감독 10% + 후보 상위 7명 2%입니다. 11명 미만 팀은 배틀할 수 없습니다."
+        "배틀 점수 = 주전 배치 평균 78% + 포메이션 적합도 12% + 감독 9% + 후보 상위 5명 1%입니다. 11명 미만 팀은 배틀할 수 없습니다."
     )
 
     my_roster_count = len(my_squad_for_score)
