@@ -17,7 +17,7 @@ DB_CONFIG = {
     "host":     "localhost",
     "port":     3306,
     "user":     "root",
-    "password": "your_password",   # ← 본인 MySQL 비밀번호 입력
+    "password": "123456",   # ← 본인 MySQL 비밀번호 입력
     "database": "kleague_db",
     "charset":  "utf8mb4",
 }
@@ -240,15 +240,19 @@ my_budget    = int(my_club_df.iloc[0]["current_budget"])
 st.sidebar.markdown(f"**구단:** {my_club_name}")
 st.sidebar.markdown(f"**잔여 예산:** {my_budget:,} 원")
 
-# 현재 활성 시즌 표시
-season_info_df = run_query(
-    "SELECT season_id, season_name, start_date FROM SEASON WHERE status='active' LIMIT 1"
-)
-if not season_info_df.empty:
-    st.sidebar.markdown(
-        f"**🗓️ 현재 시즌:** {season_info_df.iloc[0]['season_name']} "
-        f"_(시작 {season_info_df.iloc[0]['start_date']})_"
+# 현재 활성 시즌 표시 (SEASON 테이블 없으면 경고만 표시)
+try:
+    season_info_df = run_query(
+        "SELECT season_id, season_name, start_date FROM SEASON WHERE status='active' LIMIT 1"
     )
+    if not season_info_df.empty:
+        st.sidebar.markdown(
+            f"**🗓️ 현재 시즌:** {season_info_df.iloc[0]['season_name']} "
+            f"_(시작 {season_info_df.iloc[0]['start_date']})_"
+        )
+except Exception:
+    season_info_df = pd.DataFrame()
+    st.sidebar.warning("⚠️ kleague_extensions.sql 을 먼저 실행하세요.")
 
 st.sidebar.markdown("---")
 
@@ -884,9 +888,14 @@ elif page == "⚔️ 스쿼드 대결":
 elif page == "🗓️ 시즌":
     st.title("🗓️ 시즌 관리")
 
-    cur_season_df = run_query(
-        "SELECT season_id, season_name, start_date FROM SEASON WHERE status='active' LIMIT 1"
-    )
+    try:
+        cur_season_df = run_query(
+            "SELECT season_id, season_name, start_date FROM SEASON WHERE status='active' LIMIT 1"
+        )
+    except Exception:
+        st.error("❌ SEASON 테이블이 없습니다. kleague_extensions.sql 을 먼저 실행해주세요.")
+        st.stop()
+
     if cur_season_df.empty:
         st.error("활성 시즌이 없습니다. kleague_extensions.sql 을 먼저 실행해주세요.")
     else:
@@ -996,6 +1005,12 @@ elif page == "📜 감사 로그":
         "트리거가 PLAYER · CLUB · CONTRACT · TRANSFER_MARKET 변경을 자동 기록합니다. "
         "행위자는 세션 변수 @app_user_id 로 식별됩니다."
     )
+
+    try:
+        run_query("SELECT 1 FROM AUDIT_LOG LIMIT 1")
+    except Exception:
+        st.error("❌ AUDIT_LOG 테이블이 없습니다. kleague_extensions.sql 을 먼저 실행해주세요.")
+        st.stop()
 
     # 필터
     fc1, fc2, fc3 = st.columns(3)

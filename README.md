@@ -35,15 +35,18 @@ Database-project/
 
 ## 🚀 실행 순서
 
-### Step 0. CSV → SQL 변환 (최초 1회)
+### Step 0. CSV → SQL 변환 (최초 1회, 필수)
 
-`data/` 폴더의 CSV 파일로부터 DML SQL 파일을 생성합니다.
+`data/` 폴더의 CSV 파일로부터 DML SQL 파일과 통합 파일을 생성합니다.
 
 ```bash
 python csv_to_sql.py
 ```
 
-> `kleague_dml_base.sql`, `kleague_dml_sample.sql` 두 파일이 자동 생성됩니다.
+> 아래 파일이 자동 생성됩니다:
+> - `kleague_dml_base.sql` — CLUB / MANAGER / APP_USER
+> - `kleague_dml_sample.sql` — PLAYER / PLAYER_STATS / CONTRACT / TRANSFER_MARKET
+> - `kleague_full_setup.sql` — 위 5개 SQL을 하나로 합친 통합 파일
 
 ---
 
@@ -51,7 +54,7 @@ python csv_to_sql.py
 
 **방법 A — 통합 파일 한 번에 실행 (권장)**
 
-MySQL Workbench에서 `kleague_full_setup.sql` 하나만 열고 전체 실행(`Ctrl+Shift+Enter`)
+`csv_to_sql.py` 실행 후 생성된 `kleague_full_setup.sql`을 MySQL Workbench에서 열고 전체 실행(`Ctrl+Shift+Enter`)
 
 **방법 B — 터미널 SOURCE 명령어**
 
@@ -95,8 +98,9 @@ SELECT * FROM V_TRANSFER_MARKET;
 SELECT * FROM V_CLUB_BUDGET ORDER BY current_budget DESC;
 
 -- 프로시저 테스트
-CALL sp_buy_player(1, 9);            -- 울산이 매물 9번 영입
-CALL sp_create_squad_battle(1, 2);   -- 울산 vs 전북 대결
+CALL sp_create_squad_battle(1, 2);   -- FC Seoul vs Ulsan 대결
+CALL sp_buy_player(1, 12);           -- FC Seoul(user=1)이 Ulsan 매물 12번 영입
+-- ※ listing 1~11은 FC Seoul 매물 → user_id=1로 영입 불가
 ```
 
 ---

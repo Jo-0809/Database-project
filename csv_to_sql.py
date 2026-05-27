@@ -181,6 +181,9 @@ def gen_sample():
         candidates = [
             r for r in dbpbl_by_club[club_name]
             if r["player_id"] not in existing_ids
+            # 스탯이 전부 0인 불량 데이터 제거
+            and (int(r.get("shooting", 0)) + int(r.get("defending", 0)) +
+                 int(r.get("physic", 0)) + int(r.get("pace", 0))) > 0
         ]
         top5 = sorted(candidates, key=lambda x: int(x["overall"]), reverse=True)[:5]
         for r in top5:
@@ -272,10 +275,12 @@ def gen_sample():
 
     for p in added_players:
         pid = p["player_id"]
-        s_rows.append(
-            f"({pid}, {p['shooting']}, {p['defending']}, "
-            f"{p['physic']}, {p['pace']})"
-        )
+        # 스탯 최솟값 1 보장 (BETWEEN 1 AND 99 제약 준수)
+        atk = max(1, int(p.get("shooting",  1)))
+        def_= max(1, int(p.get("defending", 1)))
+        stm = max(1, int(p.get("physic",    1)))
+        spd = max(1, int(p.get("pace",      1)))
+        s_rows.append(f"({pid}, {atk}, {def_}, {stm}, {spd})")
 
     lines.append(",\n".join(s_rows) + ";")
     lines.append("")
@@ -381,11 +386,54 @@ def validate():
         print(f"  club {cid:2d} {club_names[cid]:25s}: {cur_n} + {add_n} = {total}명{note}")
 
 
+def gen_full_setup():
+    """5개 SQL 파일을 하나로 합쳐 kleague_full_setup.sql 생성
+    (MySQL Workbench에서 파일 1개만 열고 Ctrl+Shift+Enter로 전체 실행 가능)"""
+    files_in_order = [
+        ("kleague_ddl.sql",        "[1/5] DDL -- DB 구조 생성"),
+        ("kleague_dml_base.sql",   "[2/5] DML BASE -- CLUB / MANAGER / APP_USER"),
+        ("kleague_dml_sample.sql", "[3/5] DML SAMPLE -- PLAYER / PLAYER_STATS / CONTRACT / TRANSFER_MARKET"),
+        ("kleague_extensions.sql", "[4/5] EXTENSIONS -- SEASON / AUDIT_LOG / 트리거 / 뷰 / 인덱스"),
+        ("kleague_procedures.sql", "[5/5] PROCEDURES -- 프로시저 6개"),
+    ]
+
+    parts = []
+    parts.append("-- =====================================================")
+    parts.append("-- K리그 이적시장 기반 스토브리그 체험 DB 시스템")
+    parts.append("-- 통합 실행 파일 (Full Setup)")
+    parts.append("--")
+    parts.append("-- MySQL Workbench에서 이 파일 하나만 열고")
+    parts.append("-- 전체 실행(Ctrl+Shift+Enter)하면 DB 구축 완료")
+    parts.append("--")
+    parts.append("-- ※ 이 파일은 csv_to_sql.py 가 자동 생성합니다.")
+    parts.append("--   선수 데이터를 변경하려면 csv_to_sql.py 를 다시 실행하세요.")
+    parts.append("-- =====================================================")
+    parts.append("")
+
+    for filename, section_title in files_in_order:
+        parts.append(f"-- =====================================================")
+        parts.append(f"-- {section_title}")
+        parts.append(f"-- =====================================================")
+        parts.append("")
+        with open(filename, encoding="utf-8") as f:
+            content = f.read().strip()
+        parts.append(content)
+        parts.append("")
+        parts.append("")
+
+    with open("kleague_full_setup.sql", "w", encoding="utf-8") as f:
+        f.write("\n".join(parts))
+
+    total_lines = sum(1 for _ in open("kleague_full_setup.sql", encoding="utf-8"))
+    print(f"[OK] kleague_full_setup.sql ({total_lines} lines, Workbench 단일 실행 가능)")
+
+
 if __name__ == "__main__":
     validate()
     print()
     gen_base()
     gen_sample()
-    print("\nDone. SQL execution order:")
-    print("  kleague_ddl.sql -> kleague_dml_base.sql -> kleague_dml_sample.sql")
-    print("  -> kleague_extensions.sql -> kleague_procedures.sql")
+    gen_full_setup()
+    print("\nDone.")
+    print("  MySQL Workbench: kleague_full_setup.sql 열고 Ctrl+Shift+Enter")
+    print("  또는 순서대로: ddl -> dml_base -> dml_sample -> extensions -> procedures")
